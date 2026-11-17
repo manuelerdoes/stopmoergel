@@ -1,6 +1,6 @@
 # Caddy gets and renews the HTTPS certificate automatically (Let's Encrypt).
 # HTTPS is required: browsers only allow camera + microphone on secure origins.
-{$DOMAIN} {
+{$DOMAIN:set-DOMAIN-in-.env.invalid} {
 	encode zstd gzip
 	header Strict-Transport-Security "max-age=31536000"
 	reverse_proxy app:8080

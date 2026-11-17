@@ -15,8 +15,9 @@ Always run `npm run typecheck && npm test` after changes; run `npm run build` be
 
 ## Deployment
 
-Docker image (Node build → `nginx-unprivileged` on :8080) + Caddy for HTTPS via `docker-compose.yml`.
-See [docs/DEPLOY.md](docs/DEPLOY.md). HTTPS is mandatory in production (camera/mic need a secure origin).
+Docker image (Node build → `nginx-unprivileged` on :8080) via `docker-compose.yml`. Production runs at
+`stopmoergel.bitesnbytes.ch` behind the server's existing nginx (`deploy/nginx-host.conf` → `127.0.0.1:8910`);
+the bundled Caddy is opt-in (`--profile caddy`). See [docs/DEPLOY.md](docs/DEPLOY.md). HTTPS is mandatory in production (camera/mic need a secure origin).
 `deploy/nginx.conf` sets a strict **Content-Security-Policy**: everything must be served from the app itself
 (no CDNs, no external fonts/scripts). If a feature needs a new source (e.g. a `blob:` worker), update the CSP
 there and test against the container (`docker build` + run, then the browser smoke tests).

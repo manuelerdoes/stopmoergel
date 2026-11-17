@@ -1,10 +1,11 @@
-# Stopmoergel on a VPS.
+# Stopmoergel on a VPS. See docs/DEPLOY.md.
 #
-#   cp .env.example .env    # set DOMAIN (DNS A/AAAA record must point to this server)
-#   docker compose up -d --build
+# A) The server already has a reverse proxy (nginx, Traefik, …): start only the app (default),
+#    then proxy your domain to 127.0.0.1:${APP_PORT}:
+#      docker compose up -d --build
 #
-# Already have a reverse proxy (nginx, Traefik, …)? Run only the app and proxy to 127.0.0.1:8080:
-#   docker compose up -d --build app
+# B) Nothing on ports 80/443 yet: also start Caddy, which does HTTPS automatically:
+#      docker compose --profile caddy up -d --build
 services:
   app:
     build: .
@@ -23,11 +24,13 @@ services:
 
   caddy:
     image: caddy:2.10-alpine
+    # Opt-in: would otherwise clash with an existing proxy on ports 80/443.
+    profiles: ["caddy"]
     restart: unless-stopped
     depends_on:
       - app
     environment:
-      DOMAIN: ${DOMAIN:?Set DOMAIN in .env, e.g. stopmo.example.org}
+      DOMAIN: ${DOMAIN:-}
     ports:
       - "80:80"
       - "443:443"

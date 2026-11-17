@@ -11,69 +11,102 @@ Browsers only allow **camera and microphone on secure origins** (HTTPS, or `loca
 reverse proxy is the simplest place to terminate it.
 
 ```
-Browser ──HTTPS──▶ Caddy (:443, Let's Encrypt) ──HTTP──▶ app (nginx, :8080, non-root, read-only)
+Browser ──HTTPS──▶ reverse proxy (:443) ──HTTP──▶ app container (nginx, 127.0.0.1:APP_PORT → :8080)
 ```
+
+How to read `docker ps` → `127.0.0.1:8910->8080/tcp`:
+- **8080** is the port *inside* the container. It never collides with other apps on the host.
+- **8910** is the host port (`APP_PORT` in `.env`). Only this one has to be free.
+- **127.0.0.1** means it is reachable from the server itself only. The public goes through the reverse proxy.
 
 ## Files
 
 | File | Purpose |
 |---|---|
 | `Dockerfile` | Multi-stage build: Node builds and tests the app, then `nginx-unprivileged` serves `dist/` on port 8080 |
-| `deploy/nginx.conf` | Caching (hashed assets immutable, `index.html` no-cache), gzip, security headers (CSP, Permissions-Policy camera/mic), `/healthz` |
-| `deploy/Caddyfile` | HTTPS with automatic certificates, HSTS, compression, proxy to `app:8080` |
-| `docker-compose.yml` | `app` (hardened: read-only, no capabilities) + `caddy` |
-| `.env.example` | `DOMAIN`, `APP_PORT` |
+| `deploy/nginx.conf` | nginx *inside* the container: caching, gzip, security headers (CSP, Permissions-Policy camera/mic), `/healthz` |
+| `deploy/nginx-host.conf` | nginx *on the server* (reverse proxy) for `stopmoergel.bitesnbytes.ch` → `127.0.0.1:8910` |
+| `deploy/Caddyfile` | Only for option B (no existing proxy) |
+| `docker-compose.yml` | `app` (hardened: read-only, no capabilities). `caddy` is opt-in via `--profile caddy` |
+| `.env.example` | `APP_PORT`, and `DOMAIN` for Caddy only |
 
-## Option A: fresh VPS, Caddy does HTTPS (recommended)
+## Option A: the server already runs nginx (production: stopmoergel.bitesnbytes.ch)
 
-Prerequisites: Docker with the Compose plugin, a domain whose **A/AAAA record points to the VPS**, and
-ports **80 and 443** open in the firewall (80 is needed for the Let's Encrypt challenge and the redirect).
+Prerequisites:
+- DNS: an **A record** (and AAAA, if the server has IPv6) for `stopmoergel.bitesnbytes.ch` pointing to the VPS.
+- certbot is installed (`sudo apt install certbot`).
+
+**1. Start the app container** (only the app; Caddy stays off):
 
 ```bash
 git clone <your-repo> stopmoergel && cd stopmoergel
 cp .env.example .env
-nano .env                      # DOMAIN=stopmo.your-domain.org
+nano .env                          # APP_PORT=8910
 docker compose up -d --build
+curl -s http://127.0.0.1:8910/healthz   # → ok
+```
+
+**2. Get the certificate.** Start with a temporary HTTP-only block, because nginx refuses to load the
+HTTPS block before the certificate files exist:
+
+```bash
+sudo mkdir -p /var/www/certbot
+sudo tee /etc/nginx/sites-available/stopmoergel.bitesnbytes.ch >/dev/null <<'NGINX'
+server {
+    listen 80;
+    listen [::]:80;
+    server_name stopmoergel.bitesnbytes.ch;
+    location /.well-known/acme-challenge/ { root /var/www/certbot; }
+    location / { return 404; }
+}
+NGINX
+sudo ln -sf /etc/nginx/sites-available/stopmoergel.bitesnbytes.ch /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+sudo certbot certonly --webroot -w /var/www/certbot -d stopmoergel.bitesnbytes.ch
+```
+
+**3. Install the real config** (HTTP→HTTPS redirect plus the HTTPS proxy to the app):
+
+```bash
+sudo cp deploy/nginx-host.conf /etc/nginx/sites-available/stopmoergel.bitesnbytes.ch
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+If `nginx -t` complains about `http2 on;`, your nginx is older than 1.25.1. Remove that line and use
+`listen 443 ssl http2;` instead.
+
+**4. Renewal** happens automatically through certbot's timer, using the webroot from the HTTP block.
+Make nginx pick up renewed certificates:
+
+```bash
+echo 'systemctl reload nginx' | sudo tee /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh
+sudo chmod +x /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh
+sudo certbot renew --dry-run
+```
+
+Don't add `Content-Security-Policy` or `Permissions-Policy` headers in the host nginx. The app container
+already sends the right ones, and `Permissions-Policy` must allow `camera` and `microphone` for the site.
+
+## Option B: nothing on ports 80/443 yet (bundled Caddy)
+
+Set `DOMAIN=…` in `.env` (DNS must point to the server, ports 80 and 443 open), then run:
+
+```bash
+docker compose --profile caddy up -d --build
 docker compose logs -f caddy   # watch the certificate being issued
 ```
 
-Open `https://stopmo.your-domain.org`. Keep the `caddy_data` volume: it holds the certificates. If you
-delete it you risk Let's Encrypt rate limits.
+Keep the `caddy_data` volume: it holds the certificates.
 
-## Option B: the VPS already runs a reverse proxy
-
-Run only the app. It listens on `127.0.0.1:8080` (change it with `APP_PORT` in `.env`):
-
-```bash
-docker compose up -d --build app
-```
-
-Then proxy your domain to it, for example with **nginx**:
-
-```nginx
-server {
-    listen 443 ssl http2;
-    server_name stopmo.your-domain.org;
-    # ssl_certificate … (certbot etc.)
-    location / {
-        proxy_pass http://127.0.0.1:8080;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-```
-
-With **Traefik**, drop the `ports:` of `app`, attach it to Traefik's network, and add the usual router
-labels with `loadbalancer.server.port=8080`.
-
-Don't let your proxy override the app's `Content-Security-Policy` or `Permissions-Policy` headers. In
-particular, `Permissions-Policy` must allow `camera` and `microphone` for the site itself.
+**Traefik** is another reverse proxy, popular with Docker. Use it only if the server already runs it:
+drop the `ports:` of `app`, attach it to Traefik's network, and add router labels with
+`loadbalancer.server.port=8080`.
 
 ## Updating
 
 ```bash
 git pull
-docker compose up -d --build   # rebuilds the app image; Caddy keeps running
+docker compose up -d --build   # rebuilds the app image; your proxy keeps running
 docker image prune -f          # optional: remove old images
 ```
 
@@ -83,8 +116,8 @@ assets are cached forever. Users' movies are not affected by updates; they live 
 ## Checks
 
 ```bash
-curl -s https://stopmo.your-domain.org/healthz         # → ok
-curl -sI https://stopmo.your-domain.org/ | grep -i -E 'strict-transport|permissions-policy'
+curl -s https://stopmoergel.bitesnbytes.ch/healthz      # → ok
+curl -sI https://stopmoergel.bitesnbytes.ch/ | grep -i -E 'strict-transport|permissions-policy'
 docker compose ps                                      # app should be "healthy"
 ```
 
