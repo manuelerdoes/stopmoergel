@@ -109,6 +109,13 @@ layouts at 1280×800, iPad portrait and phone width. Also shipped: importing pic
   real time and needs the tab in the foreground. See [PLAN-mp4-and-backup.md](PLAN-mp4-and-backup.md).
 - Camera access needs a secure context: `localhost` works, but testing on an iPad over the LAN
   needs HTTPS (e.g. add `@vitejs/plugin-basic-ssl` or deploy to an HTTPS host).
+- **Open: iPhone camera switching is unreliable.** The switch used to cycle device IDs, which on iPhones hit
+  extra back cameras or hung, leaving "please allow camera" on screen. It now toggles front/back via
+  `facingMode`, releases the old camera first, and shows a retry when starting takes over 6 s. That improved
+  it (verified in a simulated iOS setup), but on a real iPhone it still only works sometimes (user report,
+  2026-11-17). Next idea: reuse a single `getUserMedia` call per facing, or apply
+  `track.applyConstraints({ facingMode })` instead of reopening, and test on a real device with remote
+  Web Inspector.
 - Not yet tested on real Safari/iPad or Firefox (WebCodecs H.264 should give MP4 there too; very old browsers fall back to WebM).
 - No automated UI tests in the repo yet (smoke test was a one-off Playwright script).
 

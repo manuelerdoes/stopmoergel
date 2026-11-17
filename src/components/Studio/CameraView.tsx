@@ -8,6 +8,10 @@ interface CameraViewProps {
   videoRef: RefObject<HTMLVideoElement | null>;
   stream: MediaStream | null;
   status: CameraStatus;
+  /** Browser is asking for permission (show the "please allow" hint only then). */
+  needsPermission: boolean;
+  /** Starting takes too long: offer a retry. */
+  slow: boolean;
   mirror: boolean;
   /** Last frame shown as a see-through "ghost" to line up the next picture. */
   ghostUrl: string | null;
@@ -19,7 +23,7 @@ interface CameraViewProps {
   onRetry: () => void;
 }
 
-export function CameraView({ videoRef, stream, status, mirror, ghostUrl, ghostOpacity, showGrid, onAspect, onVideoReady, onRetry }: CameraViewProps) {
+export function CameraView({ videoRef, stream, status, needsPermission, slow, mirror, ghostUrl, ghostOpacity, showGrid, onAspect, onVideoReady, onRetry }: CameraViewProps) {
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
@@ -67,12 +71,13 @@ export function CameraView({ videoRef, stream, status, mirror, ghostUrl, ghostOp
           {status === 'starting' ? (
             <>
               <Loader2 className="spin" size={56} />
-              <p>{t.cameraAsk}</p>
+              <p>{needsPermission ? t.cameraAsk : slow ? t.cameraSlow : t.cameraStarting}</p>
+              {slow && <BigButton color="yellow" label={t.cameraRetry} onClick={onRetry} />}
             </>
           ) : (
             <>
               <CameraOff size={56} />
-              <p>{status === 'denied' ? t.cameraDenied : status === 'missing' ? t.cameraMissing : t.exportFailed}</p>
+              <p>{status === 'denied' ? t.cameraDenied : status === 'missing' ? t.cameraMissing : t.cameraError}</p>
               <BigButton color="yellow" label={t.cameraRetry} onClick={onRetry} />
             </>
           )}

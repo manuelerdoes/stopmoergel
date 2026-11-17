@@ -388,6 +388,8 @@ export function Studio({ projectId, onBack }: StudioProps) {
               videoRef={videoRef}
               stream={cam.stream}
               status={cam.status}
+              needsPermission={cam.needsPermission}
+              slow={cam.slow}
               mirror={mirror}
               ghostUrl={selected == null && !playing ? ghostUrl : null}
               ghostOpacity={ghostOpacity}

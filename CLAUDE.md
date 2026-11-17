@@ -56,6 +56,12 @@ font `@fontsource/baloo-2`, `mediabunny` (MP4 muxing), `fflate` (zip). No state 
   Sounds are always stored as mono WAV so projects work across browsers. See [docs/PLAN-audio.md](docs/PLAN-audio.md).
 - Call `useProject().flush()` before reading the project back from the DB (e.g. for the backup file).
 - Camera streams must be stopped (`track.stop()`) on unmount.
+- Camera switching (`camera.ts`): phones/tablets toggle front/back via `facingMode` (iPhones list several back
+  cameras, and opening them by exact `deviceId` can hang). Only desktop webcams cycle `deviceId`s. Always release
+  the old stream and pause briefly before requesting the next one (iOS Safari hangs otherwise).
+
+## UX rules (audience: kids)
+
 
 ## UX rules (audience: kids)
 
