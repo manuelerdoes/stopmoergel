@@ -13,6 +13,14 @@ projects and frames live in IndexedDB. Plans and design notes live in `docs/` â€
 
 Always run `npm run typecheck && npm test` after changes; run `npm run build` before declaring done.
 
+## Deployment
+
+Docker image (Node build â†’ `nginx-unprivileged` on :8080) + Caddy for HTTPS via `docker-compose.yml`.
+See [docs/DEPLOY.md](docs/DEPLOY.md). HTTPS is mandatory in production (camera/mic need a secure origin).
+`deploy/nginx.conf` sets a strict **Content-Security-Policy**: everything must be served from the app itself
+(no CDNs, no external fonts/scripts). If a feature needs a new source (e.g. a `blob:` worker), update the CSP
+there and test against the container (`docker build` + run, then the browser smoke tests).
+
 ## Stack
 
 Vite + React 19 + TypeScript (strict), plain CSS with variables, `idb`, `lucide-react` icons,

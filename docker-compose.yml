@@ -1,0 +1,42 @@
+# Stopmoergel on a VPS.
+#
+#   cp .env.example .env    # set DOMAIN (DNS A/AAAA record must point to this server)
+#   docker compose up -d --build
+#
+# Already have a reverse proxy (nginx, Traefik, …)? Run only the app and proxy to 127.0.0.1:8080:
+#   docker compose up -d --build app
+services:
+  app:
+    build: .
+    image: stopmoergel:latest
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    ports:
+      # Only reachable from the server itself (for an existing proxy); Caddy talks to it over the compose network.
+      - "127.0.0.1:${APP_PORT:-8080}:8080"
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN in .env, e.g. stopmo.example.org}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp" # HTTP/3
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data # certificates — keep this volume!
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:
