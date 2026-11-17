@@ -109,6 +109,11 @@ layouts at 1280×800, iPad portrait and phone width. Also shipped: importing pic
   real time and needs the tab in the foreground. See [PLAN-mp4-and-backup.md](PLAN-mp4-and-backup.md).
 - Camera access needs a secure context: `localhost` works, but testing on an iPad over the LAN
   needs HTTPS (e.g. add `@vitejs/plugin-basic-ssl` or deploy to an HTTPS host).
+- **Fixed 2026-11-17: pictures not saved on an iPhone 12 mini** (always "0 pictures"). The cause was the Safari
+  bug that rejects Blobs in IndexedDB. It was reproduced in Chrome by simulating that bug: the old version
+  saved 0 of 3 silently, the new one 3 of 3. Frames and sounds are now stored as ArrayBuffers. Also hardened:
+  "Foto!" no longer waits forever when the video never reports `playing` (iOS Low Power Mode), a paused
+  preview restarts on tap, and save errors show a toast.
 - **Open: iPhone camera switching is unreliable.** The switch used to cycle device IDs, which on iPhones hit
   extra back cameras or hung, leaving "please allow camera" on screen. It now toggles front/back via
   `facingMode`, releases the old camera first, and shows a retry when starting takes over 6 s. That improved

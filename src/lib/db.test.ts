@@ -20,6 +20,10 @@ import {
 } from './db';
 import { DEFAULT_FPS } from './types';
 
+const bytes = async (b: Blob): Promise<number[]> => [
+  ...new Uint8Array(typeof b.arrayBuffer === 'function' ? await b.arrayBuffer() : await new Response(b).arrayBuffer()),
+];
+
 const jpeg = () => new Blob([new Uint8Array([1, 2, 3])], { type: 'image/jpeg' });
 
 beforeEach(() => {
@@ -78,9 +82,9 @@ describe('frames', () => {
     expect(got?.projectId).toBe(p.id);
     expect(got?.width).toBe(640);
     expect(got?.height).toBe(480);
-    // jsdom's Blob is not structured-cloneable by fake-indexeddb (comes back as a plain object),
-    // so only check that something was stored; real browsers round-trip Blobs natively.
-    expect(got?.blob).toBeDefined();
+    expect(got?.blob).toBeInstanceOf(Blob);
+    expect(got?.blob.type).toBe('image/jpeg');
+    expect(await bytes(got!.blob)).toEqual([1, 2, 3]);
   });
 
   it('getFrames omits missing ids', async () => {
@@ -196,6 +200,76 @@ describe('schema upgrade v1 -> v2', () => {
     const s = await addSound('p1', wav(), 1, 'recording');
     expect((await getSounds([s.id])).size).toBe(1);
     expect(await collectGarbage('p1')).toBe(1);
+  });
+});
+
+describe('blob storage (Safari workaround)', () => {
+  it('stores bytes as ArrayBuffer + type, never a Blob', async () => {
+    const f = await addFrame('p', jpeg(), 1, 1);
+    const s = await addSound('p', wav(), 1, 'music');
+    const raw = await openDB('stopmoergel');
+    const rf = await raw.get('frames', f.id);
+    const rs = await raw.get('sounds', s.id);
+    raw.close();
+    expect(Object.prototype.toString.call(rf.data)).toBe('[object ArrayBuffer]'); // instanceof differs across jsdom realms
+    expect(rf.data.byteLength).toBe(3);
+    expect(rf.type).toBe('image/jpeg');
+    expect('blob' in rf).toBe(false);
+    expect(Object.prototype.toString.call(rs.data)).toBe('[object ArrayBuffer]');
+    expect('blob' in rs).toBe(false);
+  });
+
+  it('round-trips bytes and type', async () => {
+    const f = await addFrame('p', jpeg(), 1, 1);
+    const s = await addSound('p', wav(), 1, 'music');
+    const gf = (await getFrames([f.id])).get(f.id)!;
+    const gs = (await getSounds([s.id])).get(s.id)!;
+    expect(gf.blob.type).toBe('image/jpeg');
+    expect(await bytes(gf.blob)).toEqual([1, 2, 3]);
+    expect(gs.blob.type).toBe('audio/wav');
+    expect(await bytes(gs.blob)).toEqual([1, 2]);
+  });
+
+  it('still reads legacy records with a blob field', async () => {
+    const d = await openDB('stopmoergel', 2, {
+      upgrade(x) {
+        x.createObjectStore('projects', { keyPath: 'id' });
+        x.createObjectStore('frames', { keyPath: 'id' }).createIndex('byProject', 'projectId');
+        x.createObjectStore('sounds', { keyPath: 'id' }).createIndex('byProject', 'projectId');
+      },
+    });
+    const legacy = jpeg();
+    await d.put('frames', { id: 'old', projectId: 'p', blob: legacy, width: 1, height: 1, createdAt: 1 });
+    await d.put('sounds', { id: 'olds', projectId: 'p', blob: wav(), duration: 1, createdAt: 1, kind: 'music' });
+    d.close();
+    const f = await getFrame('old');
+    expect(f?.width).toBe(1);
+    expect(f?.blob).toBeDefined();
+    expect((await getSounds(['olds'])).get('olds')?.blob).toBeDefined();
+  });
+
+  it('succeeds even when the browser cannot store Blobs in IndexedDB', async () => {
+    const proto = IDBObjectStore.prototype;
+    const origPut = proto.put;
+    const origAdd = proto.add;
+    const guard = (orig: typeof proto.put) =>
+      function (this: IDBObjectStore, value: unknown, key?: IDBValidKey) {
+        if (value && typeof value === 'object' && Object.values(value).some((v) => v instanceof Blob)) {
+          throw new DOMException('Error preparing Blob/File data to be stored in object store', 'UnknownError');
+        }
+        return orig.call(this, value, key);
+      };
+    proto.put = guard(origPut);
+    proto.add = guard(origAdd);
+    try {
+      const f = await addFrame('p', jpeg(), 1, 1);
+      const s = await addSound('p', wav(), 1, 'recording');
+      expect(await bytes((await getFrame(f.id))!.blob)).toEqual([1, 2, 3]);
+      expect((await getSounds([s.id])).size).toBe(1);
+    } finally {
+      proto.put = origPut;
+      proto.add = origAdd;
+    }
   });
 });
 

@@ -52,6 +52,10 @@ font `@fontsource/baloo-2`, `mediabunny` (MP4 muxing), `fflate` (zip). No state 
   stored separately and garbage-collected (`collectGarbage`) — never delete a frame blob directly
   from UI code, just drop it from `frameIds` (this keeps undo cheap and safe).
 - Revoke every `URL.createObjectURL` you create.
+- **Never store `Blob`s in IndexedDB.** Older iOS Safari and Safari private mode reject them ("Error preparing
+  Blob/File data…"), which silently lost every picture on an iPhone 12 mini. `db.ts` stores
+  `ArrayBuffer` + MIME type and rebuilds Blobs on read; legacy records with a `blob` field still load.
+- Never fail silently: a failed save must show a toast (with the error name, for remote debugging).
 - The backup format (`projectArchive.ts`) is a public contract: files from older versions must keep
   importing. Bump `ARCHIVE_FORMAT_VERSION` only for breaking changes and keep reading old versions.
 - Audio clips are anchored to **pictures** (`startFrame`), their length is in **seconds**. Picture strip and

@@ -1,10 +1,34 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 import { DEFAULT_FPS, type Frame, type Project, type Sound } from './types';
 
+/*
+ * Some Safari versions (older iOS, private browsing) cannot store a Blob inside an IndexedDB
+ * record ("UnknownError: Error preparing Blob/File data to be stored in object store").
+ * So we store the bytes as an ArrayBuffer plus the MIME type and rebuild the Blob on read.
+ * Records written by older app versions still carry a `blob` field and are returned as-is.
+ */
+export type StoredFrame = Omit<Frame, 'blob'> & { data?: ArrayBuffer; type?: string; blob?: Blob };
+export type StoredSound = Omit<Sound, 'blob'> & { data?: ArrayBuffer; type?: string; blob?: Blob };
+
 interface StopmoergelDB extends DBSchema {
   projects: { key: string; value: Project };
-  frames: { key: string; value: Frame; indexes: { byProject: string } };
-  sounds: { key: string; value: Sound; indexes: { byProject: string } };
+  frames: { key: string; value: StoredFrame; indexes: { byProject: string } };
+  sounds: { key: string; value: StoredSound; indexes: { byProject: string } };
+}
+
+/** Reads a Blob's bytes; old Safari lacks Blob.prototype.arrayBuffer. */
+async function bytesOf(blob: Blob): Promise<ArrayBuffer> {
+  return typeof blob.arrayBuffer === 'function' ? blob.arrayBuffer() : new Response(blob).arrayBuffer();
+}
+
+function toFrame(r: StoredFrame): Frame {
+  const { data, type, blob, ...rest } = r;
+  return { ...rest, blob: data ? new Blob([data], { type: type || 'image/jpeg' }) : (blob as Blob) };
+}
+
+function toSound(r: StoredSound): Sound {
+  const { data, type, blob, ...rest } = r;
+  return { ...rest, blob: data ? new Blob([data], { type: type || 'audio/wav' }) : (blob as Blob) };
 }
 
 let dbPromise: Promise<IDBPDatabase<StopmoergelDB>> | undefined;
@@ -102,14 +126,18 @@ export async function addFrame(
   width: number,
   height: number,
 ): Promise<Frame> {
+  const data = await bytesOf(blob); // before the transaction: it would auto-commit across awaits
   const frame: Frame = { id: crypto.randomUUID(), projectId, blob, width, height, createdAt: Date.now() };
-  await (await db()).put('frames', frame);
+  const { blob: _blob, ...meta } = frame;
+  void _blob;
+  await (await db()).put('frames', { ...meta, data, type: blob.type });
   return frame;
 }
 
 /** One frame by id. */
 export async function getFrame(id: string): Promise<Frame | undefined> {
-  return (await db()).get('frames', id);
+  const r = await (await db()).get('frames', id);
+  return r ? toFrame(r) : undefined;
 }
 
 /** Loads several frames; missing ids are absent from the map. */
@@ -117,7 +145,7 @@ export async function getFrames(ids: string[]): Promise<Map<string, Frame>> {
   const database = await db();
   const found = await Promise.all(ids.map((id) => database.get('frames', id)));
   const map = new Map<string, Frame>();
-  for (const frame of found) if (frame) map.set(frame.id, frame);
+  for (const r of found) if (r) map.set(r.id, toFrame(r));
   return map;
 }
 
@@ -128,8 +156,11 @@ export async function addSound(
   duration: number,
   kind: Sound['kind'],
 ): Promise<Sound> {
+  const data = await bytesOf(blob);
   const sound: Sound = { id: crypto.randomUUID(), projectId, blob, duration, createdAt: Date.now(), kind };
-  await (await db()).put('sounds', sound);
+  const { blob: _blob, ...meta } = sound;
+  void _blob;
+  await (await db()).put('sounds', { ...meta, data, type: blob.type });
   return sound;
 }
 
@@ -138,7 +169,7 @@ export async function getSounds(ids: string[]): Promise<Map<string, Sound>> {
   const database = await db();
   const found = await Promise.all(ids.map((id) => database.get('sounds', id)));
   const map = new Map<string, Sound>();
-  for (const sound of found) if (sound) map.set(sound.id, sound);
+  for (const r of found) if (r) map.set(r.id, toSound(r));
   return map;
 }
 

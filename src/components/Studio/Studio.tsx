@@ -173,12 +173,17 @@ export function Studio({ projectId, onBack }: StudioProps) {
     setPlaying(false);
     setSelected(null);
     try {
+      // A paused preview (e.g. iOS Low Power Mode refused autoplay) would give a stale picture; this tap may restart it.
+      if (video.paused) await video.play().catch(() => {});
       playShutter();
       setFlashKey((k) => k + 1);
       const shot = await captureFrame(video, { mirror });
       await api.addFrame(shot.blob, shot.width, shot.height);
     } catch (err) {
-      console.error(err);
+      console.error('capture failed', err);
+      // Never fail silently: kids (and we) need to see that the picture was not saved.
+      const name = (err as Error)?.name || 'Error';
+      setToast({ message: `${t.captureFailed} (${name})`, undo: false });
     } finally {
       setCapturing(false);
     }

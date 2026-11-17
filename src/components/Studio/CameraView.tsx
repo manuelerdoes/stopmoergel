@@ -31,20 +31,36 @@ export function CameraView({ videoRef, stream, status, needsPermission, slow, mi
     video.srcObject = stream;
     if (!stream) return;
     let cancelled = false;
+    let ready = false;
+    const done = () => {
+      if (cancelled || ready) return;
+      ready = true;
+      onVideoReady(true);
+    };
     // Wait until a frame has actually been presented; right after opening, cameras often deliver black frames.
     const markReady = () => {
-      if (cancelled) return;
       if ('requestVideoFrameCallback' in video) {
-        video.requestVideoFrameCallback(() => !cancelled && onVideoReady(true));
+        video.requestVideoFrameCallback(done);
+        window.setTimeout(done, 700); // some older iOS versions never call it back
       } else {
-        onVideoReady(true);
+        done();
       }
     };
+    // Fallback: older iPhones (e.g. in Low Power Mode) may never fire 'playing' although the video has pictures.
+    let poll = window.setTimeout(function check() {
+      if (cancelled || ready) return;
+      if (video.readyState >= 2 && video.videoWidth > 0) done();
+      else poll = window.setTimeout(check, 500);
+    }, 1500);
+    // If autoplay is refused (Low Power Mode), start the preview on the next tap anywhere.
+    const retryPlay = () => void video.play().catch(() => {});
     video.addEventListener('playing', markReady, { once: true });
-    video.play().catch(() => {});
+    video.play().catch(() => document.addEventListener('pointerdown', retryPlay, { once: true }));
     return () => {
       cancelled = true;
+      window.clearTimeout(poll);
       video.removeEventListener('playing', markReady);
+      document.removeEventListener('pointerdown', retryPlay);
     };
   }, [stream, videoRef, onVideoReady]);
 
