@@ -1,0 +1,84 @@
+@import '@fontsource/baloo-2/latin-500.css';
+@import '@fontsource/baloo-2/latin-700.css';
+@import '@fontsource/baloo-2/latin-800.css';
+
+:root {
+  /* Palette: bright, friendly, high contrast */
+  --c-bg: #fff6e0;
+  --c-bg-2: #ffe9b8;
+  --c-surface: #ffffff;
+  --c-ink: #2b2250;
+  --c-ink-soft: #6b6390;
+  --c-primary: #6c4bf4;
+  --c-primary-dark: #4a2fc9;
+  --c-red: #ff5a5f;
+  --c-red-dark: #d9363c;
+  --c-yellow: #ffcf3f;
+  --c-orange: #ff9f1c;
+  --c-green: #2ec47a;
+  --c-teal: #2ec4b6;
+  --c-blue: #3aa0ff;
+  --c-pink: #ff7eb6;
+  --c-stage: #1d1838;
+
+  --font: 'Baloo 2', ui-rounded, 'Comic Sans MS', system-ui, sans-serif;
+
+  --r-sm: 12px;
+  --r-md: 20px;
+  --r-lg: 32px;
+
+  --shadow-pop: 0 6px 0 rgba(43, 34, 80, 0.25);
+  --shadow-soft: 0 8px 24px rgba(43, 34, 80, 0.15);
+
+  /* Minimum touch target for small hands on tablets */
+  --touch: 64px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font);
+  font-weight: 500;
+  color: var(--c-ink);
+  background: var(--c-bg);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+button,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+:focus-visible {
+  outline: 4px solid var(--c-blue);
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
