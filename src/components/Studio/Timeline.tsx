@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { Camera } from 'lucide-react';
 import { t } from '../../i18n';
 
@@ -11,6 +11,12 @@ interface TimelineProps {
   playingIndex: number | null;
   onSelect: (index: number | null) => void;
   onMove: (from: number, to: number) => void;
+  /** Audio row rendered under the pictures, inside the same scroll area (same --pitch scale). */
+  audio?: ReactNode;
+  /** Frame position of the vertical line across both rows (scissors / playback position), or null. */
+  playhead?: number | null;
+  /** Show the playhead as the scissors line (a clip is selected). */
+  scissors?: boolean;
 }
 
 interface DragState {
@@ -27,7 +33,7 @@ interface DragState {
  * Horizontal film strip. Tap a picture to select it; drag the *selected* picture to move it.
  * Only the selected thumb captures the pointer, so swiping elsewhere still scrolls the strip on touch.
  */
-export function Timeline({ frameIds, urls, selected, playingIndex, onSelect, onMove }: TimelineProps) {
+export function Timeline({ frameIds, urls, selected, playingIndex, onSelect, onMove, audio, playhead = null, scissors = false }: TimelineProps) {
   const stripRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
   const prevCount = useRef(frameIds.length);
@@ -97,6 +103,8 @@ export function Timeline({ frameIds, urls, selected, playingIndex, onSelect, onM
 
   return (
     <div className="timeline" ref={stripRef}>
+      <div className="timeline__content">
+      <div className="timeline__frames">
       {frameIds.map((id, i) => {
         const isSelected = selected === i;
         const isDragging = drag?.moved && drag.from === i;
@@ -140,6 +148,16 @@ export function Timeline({ frameIds, urls, selected, playingIndex, onSelect, onM
         <Camera size={30} strokeWidth={2.5} />
         <span>{t.live}</span>
       </button>
+      </div>
+      {audio}
+      {playhead != null && (
+        <div
+          className={`timeline__playhead ${scissors ? 'is-scissors' : ''}`}
+          style={{ left: `calc(var(--pitch) * ${playhead})` }}
+          aria-hidden
+        />
+      )}
+      </div>
     </div>
   );
 }

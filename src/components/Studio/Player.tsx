@@ -7,18 +7,22 @@ interface PlayerProps {
   startIndex?: number;
   onIndex: (index: number) => void;
   onEnd: () => void;
+  /** Called whenever the clock (re)starts at `index`: on start, after a speed change and on each loop. Audio syncs to this. */
+  onSync?: (index: number) => void;
+  /** Keep showing the last picture at the end instead of ending (used while recording sound). */
+  holdLastFrame?: boolean;
 }
 
 /**
  * Plays frames on a canvas. Images are decoded up-front (and cached per URL) so playback never
  * flickers. Timing is based on the clock, not on counting animation frames.
  */
-export function Player({ urls, fps, loop, startIndex = 0, onIndex, onEnd }: PlayerProps) {
+export function Player({ urls, fps, loop, startIndex = 0, onIndex, onEnd, onSync, holdLastFrame = false }: PlayerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const images = useRef(new Map<string, HTMLImageElement>());
   // Keep latest callbacks/settings without restarting playback.
-  const live = useRef({ fps, loop, onIndex, onEnd });
-  live.current = { fps, loop, onIndex, onEnd };
+  const live = useRef({ fps, loop, onIndex, onEnd, onSync, holdLastFrame });
+  live.current = { fps, loop, onIndex, onEnd, onSync, holdLastFrame };
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -60,17 +64,26 @@ export function Player({ urls, fps, loop, startIndex = 0, onIndex, onEnd }: Play
       const { fps: f, loop: l } = live.current;
       if (f !== baseFps) {
         // Speed changed mid-play: continue from the current frame instead of jumping.
-        base = Math.max(shown, startIndex);
+        base = Math.max(shown, 0);
         origin = now;
         baseFps = f;
+        live.current.onSync?.(base);
       }
       let idx = base + Math.floor(((now - origin) * f) / 1000);
       if (idx >= urls.length) {
+        if (live.current.holdLastFrame) {
+          // Stay on the last picture; the caller ends playback.
+          return;
+        }
         if (!l) {
           live.current.onEnd();
           return;
         }
-        idx = idx % urls.length;
+        // Loop: restart the clock at frame 0 so audio can be re-synced exactly.
+        base = 0;
+        origin = now;
+        idx = 0;
+        live.current.onSync?.(0);
       }
       if (idx !== shown && draw(getImage(urls[idx]))) {
         shown = idx;
@@ -83,6 +96,7 @@ export function Player({ urls, fps, loop, startIndex = 0, onIndex, onEnd }: Play
       if (stopped) return;
       origin = performance.now();
       draw(getImage(urls[startIndex]));
+      live.current.onSync?.(startIndex);
       raf = requestAnimationFrame(tick);
     });
 

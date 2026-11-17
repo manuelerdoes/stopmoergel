@@ -25,7 +25,10 @@ font `@fontsource/baloo-2`, `mediabunny` (MP4 muxing), `fflate` (zip). No state 
 - `src/theme.css` — design tokens (colors, radii, `--touch` size). Use the variables, don't invent new colors.
 - `src/lib/` — non-UI logic: `types.ts`, `db.ts`, `frames.ts`, `camera.ts`, `capture.ts`,
   `exportVideo.ts` (MP4 via WebCodecs + `mediabunny`, MediaRecorder fallback),
-  `projectArchive.ts` (`.stopmoergel.zip` backup/import via `fflate`), `sounds.ts`, `useProject.ts`
+  `projectArchive.ts` (`.stopmoergel.zip` backup/import via `fflate`), `sounds.ts` (UI blips), `useProject.ts`
+- `src/lib/audio/` — audio track: `clips.ts` (pure clip ops), `wav.ts`, `context.ts` (shared AudioContext),
+  `recorder.ts` (mic → WAV, file → WAV), `mix.ts` (export mixdown), `peaks.ts` (waveforms),
+  `useAudioPlayback.ts` (sync with the picture player)
 - `src/components/ui/` — shared primitives: `BigButton`, `Dialog`, `Toast`
 - `src/components/Gallery/`, `src/components/Studio/` — the two screens
 - Tests sit next to the code as `*.test.ts`.
@@ -39,6 +42,9 @@ font `@fontsource/baloo-2`, `mediabunny` (MP4 muxing), `fflate` (zip). No state 
 - Revoke every `URL.createObjectURL` you create.
 - The backup format (`projectArchive.ts`) is a public contract: files from older versions must keep
   importing. Bump `ARCHIVE_FORMAT_VERSION` only for breaking changes and keep reading old versions.
+- Audio clips are anchored to **pictures** (`startFrame`), their length is in **seconds**. Picture strip and
+  audio row share the CSS variable `--pitch` (px per picture), so never size them independently.
+  Sounds are always stored as mono WAV so projects work across browsers. See [docs/PLAN-audio.md](docs/PLAN-audio.md).
 - Call `useProject().flush()` before reading the project back from the DB (e.g. for the backup file).
 - Camera streams must be stopped (`track.stop()`) on unmount.
 

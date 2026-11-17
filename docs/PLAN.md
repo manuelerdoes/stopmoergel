@@ -18,7 +18,6 @@ but without classroom/account features for now. Everything runs locally in the b
 ## Non-goals (later iterations)
 
 - Classrooms, teacher accounts, sharing, cloud sync.
-- Audio recording / music.
 - Drawing on frames, titles, green screen.
 - Remote camera (phone as camera for laptop).
 
@@ -113,10 +112,15 @@ layouts at 1280×800, iPad portrait and phone width. Also shipped: importing pic
 - Not yet tested on real Safari/iPad or Firefox (WebCodecs H.264 should give MP4 there too; very old browsers fall back to WebM).
 - No automated UI tests in the repo yet (smoke test was a one-off Playwright script).
 
+## Shipped after iteration 1
+
+- MP4 export and project backup: [PLAN-mp4-and-backup.md](PLAN-mp4-and-backup.md)
+- Audio track (record, music, cut/move/trim): [PLAN-audio.md](PLAN-audio.md)
+
 ## Ideas backlog (later)
 
 - Insert frames at cursor position, frame hold (duplicate x N).
-- Audio track / sound effects.
+- Sound effects library, per-clip volume, fades.
 - Timelapse auto-capture.
 - GIF export.
 - Commit a Playwright smoke test (fake camera) to the repo.

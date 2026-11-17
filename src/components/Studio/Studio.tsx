@@ -15,6 +15,9 @@ import {
   Trash2,
   Undo2,
   Pencil,
+  Mic,
+  Music,
+  Scissors,
 } from 'lucide-react';
 import { t } from '../../i18n';
 import { useCamera } from '../../lib/camera';
@@ -32,6 +35,13 @@ import { downloadBlob } from '../../lib/download';
 import { Player } from './Player';
 import { SpeedControl } from './SpeedControl';
 import { Timeline } from './Timeline';
+import { AudioTrack } from './AudioTrack';
+import { useSoundRecorder } from './useSoundRecorder';
+import { useAudioPlayback } from '../../lib/audio/useAudioPlayback';
+import { resumeAudio } from '../../lib/audio/context';
+import { renderMix } from '../../lib/audio/mix';
+import { audioFileToWav } from '../../lib/audio/recorder';
+import { clipEndFrame, clipMiddleFrame } from '../../lib/audio/clips';
 import './Studio.css';
 
 interface StudioProps {
@@ -57,7 +67,9 @@ export function Studio({ projectId, onBack }: StudioProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
 
   const [selected, setSelected] = useState<number | null>(null);
+  const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
+  const [playFrom, setPlayFrom] = useState(0);
   const [playIndex, setPlayIndex] = useState<number | null>(null);
   const [loop, setLoop] = useState(false);
   const [ghost, setGhost] = useState(true);
@@ -74,6 +86,7 @@ export function Studio({ projectId, onBack }: StudioProps) {
   const [saveOpen, setSaveOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  const musicInput = useRef<HTMLInputElement>(null);
 
   const frameIds = useMemo(() => project?.frameIds ?? [], [project?.frameIds]);
   const count = frameIds.length;
@@ -84,9 +97,52 @@ export function Studio({ projectId, onBack }: StudioProps) {
   const ghostUrl = ghost && count > 0 ? (urls.get(frameIds[count - 1]) ?? null) : null;
   const selectedUrl = selected != null && frameIds[selected] ? urls.get(frameIds[selected]) : undefined;
 
+  const clips = useMemo(() => project?.audioClips ?? [], [project?.audioClips]);
+  const fps = project?.fps ?? 8;
+  const selectedClip = clips.find((c) => c.id === selectedClipId) ?? null;
+
+  const audio = useAudioPlayback({ clips, fps, totalFrames: count, getBuffers: api.getAudioBuffers });
+
+  const rec = useSoundRecorder({
+    startPlayback: (startFrame) => {
+      if (!count) return;
+      setSelectedClipId(null);
+      setPlayFrom(Math.min(startFrame, count - 1));
+      setPlaying(true);
+    },
+    stopPlayback: () => {
+      setPlaying(false);
+      setPlayIndex(null);
+    },
+    onDone: (result, startFrame, leadIn) => {
+      void api.addSound(result.blob, result.duration, 'recording', startFrame, leadIn).then((id) => {
+        if (id) {
+          setSelectedClipId(id);
+          playPop();
+        }
+      });
+    },
+    onError: (err) => {
+      console.error(err);
+      const name = (err as DOMException)?.name;
+      setToast({ message: name === 'NotAllowedError' || name === 'SecurityError' ? t.micDenied : name === 'NotFoundError' ? t.micMissing : t.exportFailed, undo: false });
+    },
+  });
+  const recording = rec.phase !== 'idle';
+
   useEffect(() => {
     if (api.status === 'missing') onBack();
   }, [api.status, onBack]);
+
+  // Silence the audio track whenever playback stops.
+  useEffect(() => {
+    if (!playing) audio.stopAll();
+  }, [playing, audio.stopAll]);
+
+  // Forget the clip selection if the clip disappears (undo, delete).
+  useEffect(() => {
+    if (selectedClipId && !selectedClip) setSelectedClipId(null);
+  }, [selectedClipId, selectedClip]);
 
   // Keep selection valid when frames disappear (undo, delete).
   useEffect(() => {
@@ -105,7 +161,7 @@ export function Studio({ projectId, onBack }: StudioProps) {
 
   const capture = useCallback(async () => {
     const video = videoRef.current;
-    if (!video || !canCapture || capturing) return;
+    if (!video || !canCapture || capturing || recording) return;
     setCapturing(true);
     setPlaying(false);
     setSelected(null);
@@ -119,7 +175,7 @@ export function Studio({ projectId, onBack }: StudioProps) {
     } finally {
       setCapturing(false);
     }
-  }, [api, canCapture, capturing, mirror]);
+  }, [api, canCapture, capturing, mirror, recording]);
 
   const importFiles = async (files: FileList | null) => {
     if (!files) return;
@@ -137,13 +193,89 @@ export function Studio({ projectId, onBack }: StudioProps) {
   };
 
   const togglePlay = useCallback(() => {
+    if (recording) return;
     if (playing) {
       setPlaying(false);
       setPlayIndex(null);
     } else if (count > 0) {
+      void resumeAudio();
+      setPlayFrom(selected != null && selected < count - 1 ? selected : 0);
       setPlaying(true);
     }
-  }, [playing, count]);
+  }, [playing, count, recording, selected]);
+
+  const toggleRecording = () => {
+    if (rec.phase === 'recording') void rec.stop();
+    else if (rec.phase === 'countdown' || rec.phase === 'opening') rec.cancel();
+    else if (rec.phase === 'idle') {
+      setPlaying(false);
+      void rec.start(selected ?? 0);
+    }
+  };
+
+  const importMusic = async (file: File | undefined) => {
+    if (!file) return;
+    setToast({ message: t.musicLoading, undo: false });
+    try {
+      const { blob, duration } = await audioFileToWav(file);
+      const id = await api.addSound(blob, duration, 'music', selected ?? 0);
+      if (id) setSelectedClipId(id);
+      playPop();
+      setToast({ message: t.musicAdded, undo: false });
+    } catch (err) {
+      console.error(err);
+      setToast({ message: t.soundImportFailed, undo: false });
+    }
+  };
+
+  const selectClip = (id: string | null) => {
+    setSelectedClipId(id);
+    setPlaying(false);
+  };
+
+  // When a sound gets selected (tapped, just recorded, imported), put the scissors line inside it.
+  // Only reacts to selection changes, so the child can still move the line anywhere afterwards.
+  const placeScissorsFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!selectedClip || placeScissorsFor.current === selectedClip.id) {
+      if (!selectedClip) placeScissorsFor.current = null;
+      return;
+    }
+    placeScissorsFor.current = selectedClip.id;
+    if (!count) return;
+    const end = clipEndFrame(selectedClip, fps);
+    const inside = selected != null && selected > selectedClip.startFrame && selected < end;
+    if (!inside) {
+      const mid = clipMiddleFrame(selectedClip, fps);
+      if (mid > selectedClip.startFrame && mid < Math.min(end, count)) setSelected(mid);
+    }
+  }, [selectedClip, selected, count, fps]);
+
+  const cutClip = () => {
+    if (!selectedClip) return;
+    const right = selected != null ? api.splitClip(selectedClip.id, selected) : null;
+    if (right) {
+      setSelectedClipId(right);
+      playPop();
+    } else {
+      setToast({ message: t.cutHint, undo: false });
+    }
+  };
+
+  const deleteClip = useCallback(() => {
+    if (!selectedClipId) return;
+    api.deleteClip(selectedClipId);
+    setSelectedClipId(null);
+    playWhoosh();
+    setToast({ message: t.soundDeleted, undo: true });
+  }, [api, selectedClipId]);
+
+  const duplicateClip = () => {
+    if (!selectedClipId) return;
+    const id = api.duplicateClip(selectedClipId);
+    if (id) setSelectedClipId(id);
+    playPop();
+  };
 
   const deleteSelected = useCallback(() => {
     if (selected == null) return;
@@ -185,7 +317,7 @@ export function Studio({ projectId, onBack }: StudioProps) {
   // Keyboard shortcuts: Space/Enter = picture, P = play, Delete = delete, Ctrl+Z = undo, arrows = select.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (exportOpen || renameOpen || saveOpen) return;
+      if (exportOpen || renameOpen || saveOpen || recording) return;
       const target = e.target as HTMLElement;
       if (target.closest('input, textarea')) return;
       if (e.key === ' ') {
@@ -195,6 +327,9 @@ export function Studio({ projectId, onBack }: StudioProps) {
         if (!e.repeat) void capture();
       } else if (e.key.toLowerCase() === 'p') {
         togglePlay();
+      } else if ((e.key === 'Delete' || e.key === 'Backspace') && selectedClipId) {
+        e.preventDefault();
+        deleteClip();
       } else if ((e.key === 'Delete' || e.key === 'Backspace') && selected != null) {
         e.preventDefault();
         deleteSelected();
@@ -206,12 +341,13 @@ export function Studio({ projectId, onBack }: StudioProps) {
       } else if (e.key === 'ArrowRight') {
         setSelected((s) => (s == null || s >= count - 1 ? null : s + 1));
       } else if (e.key === 'Escape') {
-        setSelected(null);
+        if (selectedClipId) setSelectedClipId(null);
+        else setSelected(null);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [capture, togglePlay, deleteSelected, undo, selected, count, exportOpen, renameOpen, saveOpen]);
+  }, [capture, togglePlay, deleteSelected, deleteClip, undo, selected, selectedClipId, count, exportOpen, renameOpen, saveOpen, recording]);
 
   const onPlayEnd = useCallback(() => {
     setPlaying(false);
@@ -240,6 +376,7 @@ export function Studio({ projectId, onBack }: StudioProps) {
           icon={<Download />}
           label={t.save}
           onClick={() => (count > 0 ? setSaveOpen(true) : setToast({ message: t.needFrames, undo: false }))}
+          disabled={recording}
           className="studio__save"
         />
       </header>
@@ -262,10 +399,22 @@ export function Studio({ projectId, onBack }: StudioProps) {
             {selectedUrl && !playing && (
               <div className="stage__still">
                 <img src={selectedUrl} alt="" draggable={false} />
-                <div className="stage__still-actions">
-                  <BigButton color="white" icon={<Copy />} label={t.duplicate} onClick={duplicateSelected} />
-                  <BigButton color="red" icon={<Trash2 />} label={t.deleteFrame} onClick={deleteSelected} />
-                </div>
+              </div>
+            )}
+            {!playing && !recording && (selectedClip || selectedUrl) && (
+              <div className="stage__still-actions">
+                {selectedClip ? (
+                  <>
+                    <BigButton color="yellow" icon={<Scissors />} label={t.cut} onClick={cutClip} />
+                    <BigButton color="white" icon={<Copy />} label={t.duplicate} onClick={duplicateClip} />
+                    <BigButton color="red" icon={<Trash2 />} label={t.deleteSound} onClick={deleteClip} />
+                  </>
+                ) : (
+                  <>
+                    <BigButton color="white" icon={<Copy />} label={t.duplicate} onClick={duplicateSelected} />
+                    <BigButton color="red" icon={<Trash2 />} label={t.deleteFrame} onClick={deleteSelected} />
+                  </>
+                )}
               </div>
             )}
             {playing && (
@@ -274,13 +423,31 @@ export function Studio({ projectId, onBack }: StudioProps) {
                   urls={playUrls}
                   fps={project.fps}
                   loop={loop}
-                  startIndex={selected != null && selected < count - 1 ? selected : 0}
+                  startIndex={playFrom}
                   onIndex={setPlayIndex}
                   onEnd={onPlayEnd}
+                  holdLastFrame={recording}
+                  onSync={(i) => (recording ? rec.markPlaybackStart() : audio.syncFrom(i))}
                 />
               </div>
             )}
             {flashKey > 0 && <div key={flashKey} className="stage__flash" aria-hidden />}
+            {rec.phase === 'countdown' && (
+              <div className="stage__countdown" aria-live="assertive">
+                <span key={rec.count}>{rec.count}</span>
+              </div>
+            )}
+            {(rec.phase === 'recording' || rec.phase === 'countdown') && (
+              <div className="stage__rec">
+                <span className="stage__rec-dot" />
+                <span>{rec.phase === 'recording' ? `${t.recording} ${formatTime(rec.elapsed)}` : t.recordSound}</span>
+                <span className="stage__meter" aria-hidden>
+                  {Array.from({ length: 10 }, (_, i) => (
+                    <span key={i} className={rec.level * 10 > i ? 'is-on' : ''} />
+                  ))}
+                </span>
+              </div>
+            )}
             <div className="stage__counter">{t.frames(count)}</div>
           </div>
         </div>
@@ -322,7 +489,7 @@ export function Studio({ projectId, onBack }: StudioProps) {
             type="button"
             className="studio__capture"
             onClick={() => void capture()}
-            disabled={!canCapture}
+            disabled={!canCapture || recording}
             aria-label={t.takePicture}
           >
             <span className="studio__capture-inner" />
@@ -333,12 +500,30 @@ export function Studio({ projectId, onBack }: StudioProps) {
 
       <div className="studio__bar">
         <BigButton
-          color={playing ? 'red' : 'primary'}
-          icon={playing ? <Square fill="currentColor" /> : <Play fill="currentColor" />}
-          label={playing ? t.stop : t.play}
+          color={playing && !recording ? 'red' : 'primary'}
+          icon={playing && !recording ? <Square fill="currentColor" /> : <Play fill="currentColor" />}
+          label={playing && !recording ? t.stop : t.play}
           onClick={togglePlay}
-          disabled={count === 0}
+          disabled={count === 0 || recording}
           className="studio__play"
+        />
+        <BigButton
+          color={recording ? 'red' : 'pink'}
+          icon={recording ? <Square fill="currentColor" /> : <Mic />}
+          label={recording ? t.stop : t.recordSound}
+          onClick={toggleRecording}
+          className={`studio__mic ${rec.phase === 'recording' ? 'is-recording' : ''}`}
+        />
+        <BigButton color="blue" icon={<Music />} label={t.music} onClick={() => musicInput.current?.click()} disabled={recording} />
+        <input
+          ref={musicInput}
+          type="file"
+          accept="audio/*"
+          hidden
+          onChange={(e) => {
+            void importMusic(e.target.files?.[0]);
+            e.target.value = '';
+          }}
         />
         <BigButton color="white" icon={<Repeat />} label={t.loop} active={loop} onClick={() => setLoop((l) => !l)} />
         <SpeedControl fps={project.fps} onChange={api.setFps} />
@@ -351,10 +536,26 @@ export function Studio({ projectId, onBack }: StudioProps) {
         selected={selected}
         playingIndex={playing ? playIndex : null}
         onSelect={(i) => {
+          if (recording) return;
           setPlaying(false);
+          // With a sound selected, tapping a picture moves the scissors line; "Live" ends sound editing.
+          if (i === null) setSelectedClipId(null);
           setSelected(i);
         }}
         onMove={api.moveFrame}
+        playhead={playing ? playIndex : selectedClip ? selected : null}
+        scissors={!!selectedClip && !playing}
+        audio={
+          <AudioTrack
+            clips={clips}
+            sounds={api.sounds}
+            fps={fps}
+            frameCount={count}
+            selectedClipId={selectedClipId}
+            onSelectClip={(id) => !recording && selectClip(id)}
+            onChangeClip={api.updateClip}
+          />
+        }
       />
 
       <Toast
@@ -374,11 +575,23 @@ export function Studio({ projectId, onBack }: StudioProps) {
         onProject={() => void saveProjectFile()}
       />
 
-      <ExportDialog open={exportOpen} onClose={() => setExportOpen(false)} getBlobs={api.getBlobs} fps={project.fps} name={project.name} />
+      <ExportDialog
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        getBlobs={api.getBlobs}
+        getAudio={() => renderMix(project.audioClips, api.getAudioBuffers(), project.fps, count / project.fps)}
+        fps={project.fps}
+        name={project.name}
+      />
 
       <RenameDialog open={renameOpen} name={project.name} onClose={() => setRenameOpen(false)} onRename={api.rename} />
     </div>
   );
+}
+
+function formatTime(seconds: number): string {
+  const s = Math.floor(seconds);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
 function RenameDialog({ open, name, onClose, onRename }: { open: boolean; name: string; onClose: () => void; onRename: (n: string) => void }) {

@@ -1,15 +1,18 @@
 import 'fake-indexeddb/auto';
 import { IDBFactory } from 'fake-indexeddb';
+import { openDB } from 'idb';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   _resetForTests,
   addFrame,
+  addSound,
   collectGarbage,
   createProject,
   deleteProject,
   getFrame,
   getFrames,
   getProject,
+  getSounds,
   listProjects,
   renameProject,
   requestPersistentStorage,
@@ -31,6 +34,7 @@ describe('projects', () => {
     expect(p.name).toBe('Hallo');
     expect(p.fps).toBe(DEFAULT_FPS);
     expect(p.frameIds).toEqual([]);
+    expect(p.audioClips).toEqual([]);
     expect(p.createdAt).toBe(p.updatedAt);
     expect(await getProject(p.id)).toEqual(p);
   });
@@ -120,6 +124,78 @@ describe('frames', () => {
     expect(await getFrame(f.id)).toBeUndefined();
     expect(await getFrame(g.id)).toBeDefined();
     expect(await getProject(other.id)).toBeDefined();
+  });
+});
+
+const wav = () => new Blob([new Uint8Array([1, 2])], { type: 'audio/wav' });
+
+describe('sounds', () => {
+  it('stores and loads sounds, omitting missing ids', async () => {
+    const p = await createProject('m');
+    const a = await addSound(p.id, wav(), 1.5, 'recording');
+    const b = await addSound(p.id, wav(), 2, 'music');
+    expect(a.kind).toBe('recording');
+    expect(a.duration).toBe(1.5);
+    const map = await getSounds([a.id, 'nope', b.id]);
+    expect([...map.keys()].sort()).toEqual([a.id, b.id].sort());
+    expect(map.get(b.id)?.kind).toBe('music');
+  });
+
+  it('saveProject copies audioClips', async () => {
+    const p = await createProject('m');
+    const clip = { id: 'c', soundId: 's', startFrame: 1, offset: 0, duration: 1 };
+    const saved = await saveProject({ ...p, audioClips: [clip] });
+    clip.startFrame = 9;
+    expect(saved.audioClips[0].startFrame).toBe(1);
+    expect((await getProject(p.id))?.audioClips).toEqual([{ ...clip, startFrame: 1 }]);
+  });
+
+  it('collectGarbage removes unreferenced sounds and counts frames + sounds', async () => {
+    const p = await createProject('a');
+    const other = await createProject('b');
+    const keep = await addSound(p.id, wav(), 1, 'recording');
+    const drop = await addSound(p.id, wav(), 1, 'recording');
+    const foreign = await addSound(other.id, wav(), 1, 'recording');
+    await addFrame(p.id, jpeg(), 1, 1);
+    await saveProject({
+      ...p,
+      audioClips: [{ id: 'c', soundId: keep.id, startFrame: 0, offset: 0, duration: 1 }],
+    });
+    expect(await collectGarbage(p.id)).toBe(2);
+    const map = await getSounds([keep.id, drop.id, foreign.id]);
+    expect([...map.keys()].sort()).toEqual([keep.id, foreign.id].sort());
+  });
+
+  it('deleteProject removes its sounds but not others', async () => {
+    const p = await createProject('a');
+    const other = await createProject('b');
+    const s = await addSound(p.id, wav(), 1, 'music');
+    const t = await addSound(other.id, wav(), 1, 'music');
+    await deleteProject(p.id);
+    expect([...(await getSounds([s.id, t.id])).keys()]).toEqual([t.id]);
+  });
+});
+
+describe('schema upgrade v1 -> v2', () => {
+  it('keeps v1 data readable and adds the sounds store', async () => {
+    const old = await openDB('stopmoergel', 1, {
+      upgrade(d) {
+        d.createObjectStore('projects', { keyPath: 'id' });
+        d.createObjectStore('frames', { keyPath: 'id' }).createIndex('byProject', 'projectId');
+      },
+    });
+    await old.put('projects', { id: 'p1', name: 'Alt', createdAt: 1, updatedAt: 2, fps: 8, frameIds: ['f'] });
+    await old.put('frames', { id: 'f', projectId: 'p1', blob: jpeg(), width: 1, height: 1, createdAt: 1 });
+    old.close();
+
+    const p = await getProject('p1');
+    expect(p?.audioClips).toEqual([]);
+    expect(p?.frameIds).toEqual(['f']);
+    expect((await listProjects())[0].audioClips).toEqual([]);
+    expect(await getFrame('f')).toBeDefined();
+    const s = await addSound('p1', wav(), 1, 'recording');
+    expect((await getSounds([s.id])).size).toBe(1);
+    expect(await collectGarbage('p1')).toBe(1);
   });
 });
 

@@ -10,6 +10,8 @@ interface ExportDialogProps {
   open: boolean;
   onClose: () => void;
   getBlobs: () => Blob[];
+  /** Mixed sound track for the movie (null = silent). */
+  getAudio?: () => Promise<AudioBuffer | null>;
   fps: number;
   name: string;
 }
@@ -17,7 +19,7 @@ interface ExportDialogProps {
 type Phase = { kind: 'working'; progress: number } | { kind: 'done' } | { kind: 'error'; message: string };
 
 /** Records the movie to a video file (takes as long as the movie), then downloads it. */
-export function ExportDialog({ open, onClose, getBlobs, fps, name }: ExportDialogProps) {
+export function ExportDialog({ open, onClose, getBlobs, getAudio, fps, name }: ExportDialogProps) {
   const [phase, setPhase] = useState<Phase>({ kind: 'working', progress: 0 });
 
   useEffect(() => {
@@ -28,8 +30,10 @@ export function ExportDialog({ open, onClose, getBlobs, fps, name }: ExportDialo
     import('../../lib/exportVideo')
       .then(async ({ exportVideo, isVideoExportSupported, safeFileName }) => {
         if (!isVideoExportSupported()) throw Object.assign(new Error('unsupported'), { unsupported: true });
+        const audio = getAudio ? await getAudio().catch((e) => (console.error('mixdown failed', e), null)) : null;
         const result = await exportVideo(getBlobs(), {
           fps,
+          audio,
           signal: ctrl.signal,
           onProgress: (p) => setPhase({ kind: 'working', progress: p }),
         });

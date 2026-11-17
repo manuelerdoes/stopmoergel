@@ -65,6 +65,20 @@ const de = {
   importBroken: 'Die Datei ist kaputt, es fehlen Bilder.',
   importFailedTitle: 'Hoppla!',
   dropHere: 'Lass die Datei hier fallen!',
+  sound: 'Ton',
+  recordSound: 'Ton aufnehmen',
+  music: 'Musik',
+  cut: 'Schneiden',
+  deleteSound: 'Ton löschen',
+  soundDeleted: 'Ton gelöscht',
+  micDenied: 'Das Mikrofon ist blockiert. Erlaube es in den Browser-Einstellungen.',
+  micMissing: 'Kein Mikrofon gefunden.',
+  recording: 'Aufnahme',
+  musicLoading: 'Musik wird geladen …',
+  musicAdded: 'Musik ist drin!',
+  soundImportFailed: 'Diese Musik kann ich leider nicht lesen.',
+  audioHint: 'Hier kommt dein Ton hin',
+  cutHint: 'Tippe auf ein Bild, um die Schere zu setzen',
 };
 
 export type Strings = typeof de;
@@ -129,6 +143,20 @@ const en: Strings = {
   importBroken: 'The file is broken, some pictures are missing.',
   importFailedTitle: 'Oops!',
   dropHere: 'Drop the file here!',
+  sound: 'Sound',
+  recordSound: 'Record sound',
+  music: 'Music',
+  cut: 'Cut',
+  deleteSound: 'Delete sound',
+  soundDeleted: 'Sound deleted',
+  micDenied: 'The microphone is blocked. Allow it in the browser settings.',
+  micMissing: 'No microphone found.',
+  recording: 'Recording',
+  musicLoading: 'Loading music …',
+  musicAdded: 'Music added!',
+  soundImportFailed: 'Sorry, I cannot read this music file.',
+  audioHint: 'Your sound goes here',
+  cutHint: 'Tap a picture to place the scissors',
 };
 
 function detect(): Strings {

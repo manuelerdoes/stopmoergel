@@ -6,8 +6,21 @@
 //     in background tabs. Output is always MP4.
 //  2. MediaRecorder fallback: records the canvas in real time (a movie of N frames
 //     at F fps takes ~N/F s). Prefers MP4, falls back to WebM (e.g. older Firefox).
+//
+// Audio (optional): a ready-mixed AudioBuffer (see audio/mix.ts) starting at t = 0.
+// WebCodecs encodes it as AAC (Opus if AAC isn't available) into the MP4; the
+// MediaRecorder path plays it in real time into the recorded stream.
 
-import { BufferTarget, CanvasSource, Mp4OutputFormat, Output, Quality, canEncodeVideo } from 'mediabunny';
+import {
+  AudioBufferSource,
+  BufferTarget,
+  CanvasSource,
+  Mp4OutputFormat,
+  Output,
+  Quality,
+  canEncodeAudio,
+  canEncodeVideo,
+} from 'mediabunny';
 
 export interface ExportOptions {
   fps: number;
@@ -15,12 +28,21 @@ export interface ExportOptions {
   maxWidth?: number;
   onProgress?: (fraction: number) => void; // 0..1
   signal?: AbortSignal; // abort => reject with DOMException 'AbortError'
+  /** Mixed soundtrack, played from t = 0 (ideally exactly as long as the movie). Omit/null = silent video. */
+  audio?: AudioBuffer | null;
 }
 export interface ExportResult {
   blob: Blob;
   mimeType: string;
   extension: 'mp4' | 'webm';
 }
+
+/** MediaRecorder types that explicitly include an audio codec; tried first when there is audio. */
+const AUDIO_MIME_PREFERENCE = [
+  'video/mp4;codecs=avc1,mp4a.40.2',
+  'video/webm;codecs=vp9,opus',
+  'video/webm;codecs=vp8,opus',
+];
 
 const MIME_PREFERENCE = [
   'video/mp4;codecs=avc1',
@@ -32,17 +54,21 @@ const MIME_PREFERENCE = [
 
 /** Encoding quality for the WebCodecs path. mediabunny derives the bitrate from it and the resolution. */
 const WEBCODECS_QUALITY = new Quality('high');
+/** Audio quality for the WebCodecs path (mediabunny picks a bitrate per codec/channels). */
+const AUDIO_QUALITY = new Quality('high');
 /** Seconds between key frames. Short, so scrubbing in players is snappy (the movies are small anyway). */
 const KEY_FRAME_INTERVAL = 1;
 /** How many frames to decode ahead of the one being drawn. */
 const DECODE_AHEAD = 2;
 
-export function pickVideoMimeType(): string | null {
+/** Best MediaRecorder mime type. With `withAudio`, types naming an audio codec are preferred. */
+export function pickVideoMimeType(withAudio = false): string | null {
   try {
     if (typeof MediaRecorder === 'undefined' || typeof MediaRecorder.isTypeSupported !== 'function') {
       return null;
     }
-    return MIME_PREFERENCE.find((m) => MediaRecorder.isTypeSupported(m)) ?? null;
+    const list = withAudio ? [...AUDIO_MIME_PREFERENCE, ...MIME_PREFERENCE] : MIME_PREFERENCE;
+    return list.find((m) => MediaRecorder.isTypeSupported(m)) ?? null;
   } catch {
     return null;
   }
@@ -89,6 +115,33 @@ export async function canExportMp4WithWebCodecs(width = 1280, height = 720): Pro
   } catch {
     return false;
   }
+}
+
+/**
+ * Audio codec for the MP4: AAC if WebCodecs (or a registered custom encoder) can
+ * encode it with this buffer's layout, else Opus, else null. Never throws.
+ */
+async function pickAudioCodec(audio: AudioBuffer): Promise<'aac' | 'opus' | null> {
+  const options = {
+    numberOfChannels: audio.numberOfChannels,
+    sampleRate: audio.sampleRate,
+    quality: AUDIO_QUALITY,
+  };
+  for (const codec of ['aac', 'opus'] as const) {
+    try {
+      if (await canEncodeAudio(codec, options)) return codec;
+    } catch {
+      /* treat as unsupported */
+    }
+  }
+  return null;
+}
+
+type AudioContextCtor = new () => AudioContext;
+
+function getAudioContext(): AudioContextCtor | null {
+  const w = globalThis as unknown as { AudioContext?: AudioContextCtor; webkitAudioContext?: AudioContextCtor };
+  return w.AudioContext ?? w.webkitAudioContext ?? null;
 }
 
 function abortError(): DOMException {
@@ -216,7 +269,35 @@ async function exportWithWebCodecs(frames: Blob[], opts: ExportOptions): Promise
     });
     // frameRate snaps all timestamps to the fps grid (clean, constant frame rate).
     output.addVideoTrack(source, { frameRate: fps });
+
+    // All tracks must be added before start(). If no audio codec is available
+    // we still export the (silent) MP4 rather than dropping to the slow
+    // real-time MediaRecorder path just for the sound.
+    let audioSource: AudioBufferSource | null = null;
+    if (opts.audio && opts.audio.length > 0) {
+      const codec = await pickAudioCodec(opts.audio);
+      if (codec) {
+        audioSource = new AudioBufferSource({ codec, quality: AUDIO_QUALITY });
+        output.addAudioTrack(audioSource);
+      } else {
+        console.warn('Neither AAC nor Opus can be encoded here; exporting the video without sound.');
+      }
+    }
+    if (signal?.aborted) {
+      first.close();
+      throw abortError();
+    }
     await output.start();
+
+    if (audioSource && opts.audio) {
+      // The whole mix goes in at once, starting at timestamp 0 (mediabunny splits
+      // it into chunks). No deadlock with the video: the muxer only queues audio
+      // packets until video packets with later timestamps arrive (fastStart
+      // 'in-memory' keeps everything in memory anyway). close() tells the muxer
+      // this track is complete, so it doesn't wait for more audio.
+      await audioSource.add(opts.audio);
+      audioSource.close();
+    }
 
     for (let i = 0; i < frames.length; i++) {
       const bmp = i === 0 ? first : await decoder.take(i);
@@ -255,7 +336,10 @@ async function exportWithWebCodecs(frames: Blob[], opts: ExportOptions): Promise
 
 /** MediaRecorder path: records the canvas in real time. */
 async function exportWithMediaRecorder(frames: Blob[], opts: ExportOptions): Promise<ExportResult> {
-  const mimeType = pickVideoMimeType();
+  const AudioCtx = getAudioContext();
+  const withAudio = !!opts.audio && opts.audio.length > 0 && AudioCtx !== null;
+  if (opts.audio && !withAudio) console.warn('Web Audio is not available; recording the video without sound.');
+  const mimeType = pickVideoMimeType(withAudio);
   if (!mimeType || !isMediaRecorderSupported()) {
     throw new Error('Video export is not supported in this browser.');
   }
@@ -267,6 +351,7 @@ async function exportWithMediaRecorder(frames: Blob[], opts: ExportOptions): Pro
   const decoder = createFrameDecoder(frames);
   let recorder: MediaRecorder | null = null;
   let stream: MediaStream | null = null;
+  let audioCtx: AudioContext | null = null;
 
   const cleanup = () => {
     try {
@@ -303,6 +388,28 @@ async function exportWithMediaRecorder(frames: Blob[], opts: ExportOptions): Pro
       if (manual) track!.requestFrame!();
     };
 
+    // Soundtrack: play the mix through a MediaStreamAudioDestinationNode (not to
+    // the speakers) and record its track together with the canvas. The track
+    // must be on the stream before the recorder is created.
+    let audioNode: AudioBufferSourceNode | null = null;
+    if (withAudio && opts.audio) {
+      try {
+        audioCtx = new AudioCtx!();
+        // Autoplay policies may create the context suspended; export is user-initiated.
+        if (audioCtx.state === 'suspended') await audioCtx.resume().catch(() => {});
+        const dest = audioCtx.createMediaStreamDestination();
+        audioNode = audioCtx.createBufferSource();
+        audioNode.buffer = opts.audio;
+        audioNode.connect(dest);
+        const audioTrack = dest.stream.getAudioTracks()[0];
+        if (audioTrack) stream.addTrack(audioTrack);
+        if (signal?.aborted) throw abortError();
+      } catch (err) {
+        first.close();
+        throw err;
+      }
+    }
+
     const chunks: Blob[] = [];
     recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 4_000_000 });
     const rec = recorder;
@@ -318,6 +425,8 @@ async function exportWithMediaRecorder(frames: Blob[], opts: ExportOptions): Pro
     // Draw frame 0 before starting so the recording never begins with a blank frame.
     draw(first);
     rec.start(1000); // timeslice: emit chunks periodically, not only at stop
+    // Sound starts together with the first frame (both are "now"; sync is within a few ms).
+    audioNode?.start();
 
     // Hold a drawn frame until `deadline` (performance.now() based). Timer drift
     // is corrected because every deadline is computed from the start time, not
@@ -364,8 +473,9 @@ async function exportWithMediaRecorder(frames: Blob[], opts: ExportOptions): Pro
     cleanup();
     throw err;
   } finally {
-    // On success the recorder is already inactive and tracks stopped; this just frees bitmaps.
+    // On success the recorder is already inactive and tracks stopped; this frees bitmaps and audio.
     decoder.dispose();
+    void audioCtx?.close().catch(() => {});
   }
 }
 

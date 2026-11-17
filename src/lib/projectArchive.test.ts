@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto';
 import { IDBFactory } from 'fake-indexeddb';
 import { unzipSync, zipSync } from 'fflate';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { _resetForTests, getProject } from './db';
+import { _resetForTests, getProject, getSounds } from './db';
 import {
   ArchiveError,
   buildArchive,
@@ -62,7 +62,7 @@ describe('buildArchive/parseArchive', () => {
   });
 
   it('rejects newer versions', () => {
-    expectCode(() => parseArchive(zipWith({ ...base, formatVersion: 2, frames: [] })), 'newerVersion');
+    expectCode(() => parseArchive(zipWith({ ...base, formatVersion: 3, frames: [] })), 'newerVersion');
   });
 
   it('rejects missing or empty frames', () => {
@@ -99,6 +99,84 @@ describe('importProjectArchive', () => {
     expect(project.frameIds[0]).toBe(project.frameIds[2]);
     expect(project.frameIds[0]).not.toBe(project.frameIds[1]);
     expect((await getProject(project.id))?.frameIds).toEqual(project.frameIds);
+  });
+});
+
+const sounds = [{ id: 's1', duration: 1.5, kind: 'recording' as const, bytes: new Uint8Array([7, 7, 7]) }];
+const clip = (id: string, startFrame: number) => ({ id, soundId: 's1', startFrame, offset: 0, duration: 1.5 });
+const v2 = { ...base, formatVersion: 2, frames: [] };
+
+describe('audio (format v2)', () => {
+  it('round trips clips and stores a shared sound once', () => {
+    const zip = buildArchive(meta, frames, ['a'], { sounds, clips: [clip('c1', 3), clip('c2', 20)] });
+    expect(Object.keys(unzipSync(zip)).sort()).toEqual(['frames/0001.jpg', 'project.json', 'sounds/0001.wav']);
+    const parsed = parseArchive(zip);
+    expect(parsed.sounds).toHaveLength(1);
+    expect(Array.from(parsed.sounds[0].bytes)).toEqual([7, 7, 7]);
+    expect(parsed.sounds[0].duration).toBe(1.5);
+    expect(parsed.audioClips.map((c) => [c.soundPath, c.startFrame])).toEqual([
+      ['sounds/0001.wav', 3],
+      ['sounds/0001.wav', 20],
+    ]);
+  });
+
+  it('skips unreferenced sounds', () => {
+    const zip = buildArchive(meta, frames, ['a'], { sounds, clips: [] });
+    expect(Object.keys(unzipSync(zip))).not.toContain('sounds/0001.wav');
+  });
+
+  it('imports a v1 file without audio', () => {
+    const parsed = parseArchive(zipWith({ ...base, frames: [] }));
+    expect(parsed.sounds).toEqual([]);
+    expect(parsed.audioClips).toEqual([]);
+  });
+
+  it('rejects broken clip references and bad numbers', () => {
+    const good = { 'sounds/0001.wav': new Uint8Array([1]) };
+    const info = { 'sounds/0001.wav': { duration: 1, kind: 'music' } };
+    const c = { sound: 'sounds/0001.wav', startFrame: 1, offset: 0, duration: 1 };
+    expect(parseArchive(zipWith({ ...v2, sounds: info, audioClips: [c] }, good)).audioClips).toHaveLength(1);
+    expectCode(() => parseArchive(zipWith({ ...v2, sounds: info, audioClips: [c] })), 'brokenFrames');
+    expectCode(() => parseArchive(zipWith({ ...v2, sounds: {}, audioClips: [c] }, good)), 'brokenFrames');
+    for (const bad of [{ offset: -1 }, { duration: 0 }, { startFrame: NaN }, { duration: 'x' }]) {
+      expectCode(
+        () => parseArchive(zipWith({ ...v2, sounds: info, audioClips: [{ ...c, ...bad }] }, good)),
+        'brokenFrames',
+      );
+    }
+  });
+
+  it('rounds and clamps startFrame', () => {
+    const good = { 'sounds/0001.wav': new Uint8Array([1]) };
+    const info = { 'sounds/0001.wav': { duration: 1, kind: 'music' } };
+    const c = { sound: 'sounds/0001.wav', offset: 0, duration: 1 };
+    const p = parseArchive(
+      zipWith({ ...v2, sounds: info, audioClips: [{ ...c, startFrame: -4 }, { ...c, startFrame: 2.6 }] }, good),
+    );
+    expect(p.audioClips.map((x) => x.startFrame)).toEqual([0, 3]);
+  });
+
+  it('guards sound paths', () => {
+    const evil = { '../evil.wav': new Uint8Array([1]) };
+    for (const sound of ['../evil.wav', 'sounds/../x.wav', 'sounds/a.mp3']) {
+      const c = { sound, startFrame: 0, offset: 0, duration: 1 };
+      expectCode(
+        () => parseArchive(zipWith({ ...v2, sounds: { [sound]: { duration: 1 } }, audioClips: [c] }, evil)),
+        'brokenFrames',
+      );
+    }
+  });
+
+  it('imports sounds and remaps clips', async () => {
+    const zip = buildArchive(meta, frames, ['a'], { sounds, clips: [clip('c1', 3), clip('c2', 20)] });
+    const project = await importProjectArchive(new Blob([zip as BlobPart]));
+    expect(project.audioClips).toHaveLength(2);
+    expect(project.audioClips[0].id).not.toBe('c1');
+    expect(project.audioClips[0].soundId).toBe(project.audioClips[1].soundId);
+    expect(project.audioClips.map((c) => c.startFrame)).toEqual([3, 20]);
+    const stored = await getSounds([project.audioClips[0].soundId]);
+    expect(stored.get(project.audioClips[0].soundId)?.duration).toBe(1.5);
+    expect((await getProject(project.id))?.audioClips).toEqual(project.audioClips);
   });
 });
 
