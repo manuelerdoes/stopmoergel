@@ -123,6 +123,7 @@ layouts at 1280×800, iPad portrait and phone width. Also shipped: importing pic
 
 - MP4 export and project backup: [PLAN-mp4-and-backup.md](PLAN-mp4-and-backup.md)
 - Audio track (record, music, cut/move/trim): [PLAN-audio.md](PLAN-audio.md)
+- Phone layout (full-screen stage, overlay controls): [PLAN-phone-layout.md](PLAN-phone-layout.md)
 
 ## Ideas backlog (later)
 

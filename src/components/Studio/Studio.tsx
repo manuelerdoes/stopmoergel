@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ArrowLeft,
   Copy,
@@ -35,6 +35,8 @@ import { downloadBlob } from '../../lib/download';
 import { Player } from './Player';
 import { SpeedControl } from './SpeedControl';
 import { Timeline } from './Timeline';
+import { PhoneLayout } from './PhoneLayout';
+import { PHONE_QUERY, useMediaQuery } from '../../lib/useMediaQuery';
 import { AudioTrack } from './AudioTrack';
 import { useSoundRecorder } from './useSoundRecorder';
 import { useAudioPlayback } from '../../lib/audio/useAudioPlayback';
@@ -64,6 +66,7 @@ export function Studio({ projectId, onBack }: StudioProps) {
   const api = useProject(projectId);
   const { project, urls } = api;
   const cam = useCamera(api.status === 'ready');
+  const isPhone = useMediaQuery(PHONE_QUERY);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   const [selected, setSelected] = useState<number | null>(null);
@@ -363,27 +366,12 @@ export function Studio({ projectId, onBack }: StudioProps) {
   }
   if (api.status === 'missing' || !project) return null;
 
-  return (
-    <div className="studio">
-      <header className="studio__top">
-        <BigButton color="white" icon={<ArrowLeft />} label={t.back} onClick={onBack} className="studio__back" />
-        <button type="button" className="studio__title" onClick={() => setRenameOpen(true)} title={t.rename}>
-          <span>{project.name}</span>
-          <Pencil size={20} />
-        </button>
-        <BigButton
-          color="green"
-          icon={<Download />}
-          label={t.save}
-          onClick={() => (count > 0 ? setSaveOpen(true) : setToast({ message: t.needFrames, undo: false }))}
-          disabled={recording}
-          className="studio__save"
-        />
-      </header>
+  const openSave = () => (count > 0 ? setSaveOpen(true) : setToast({ message: t.needFrames, undo: false }));
+  const showActions = !playing && !recording && !!(selectedClip || selectedUrl);
 
-      <main className="studio__main">
-        <div className="stage">
-          <div className="stage__frame" style={{ ['--ar' as string]: aspect }}>
+  // ---- Pieces shared by the desktop and the phone layout ----
+  const stageBase = (
+    <>
             <CameraView
               videoRef={videoRef}
               stream={cam.stream}
@@ -403,8 +391,10 @@ export function Studio({ projectId, onBack }: StudioProps) {
                 <img src={selectedUrl} alt="" draggable={false} />
               </div>
             )}
-            {!playing && !recording && (selectedClip || selectedUrl) && (
-              <div className="stage__still-actions">
+    </>
+  );
+  const actionButtons = showActions ? (
+    <>
                 {selectedClip ? (
                   <>
                     <BigButton color="yellow" icon={<Scissors />} label={t.cut} onClick={cutClip} />
@@ -417,8 +407,10 @@ export function Studio({ projectId, onBack }: StudioProps) {
                     <BigButton color="red" icon={<Trash2 />} label={t.deleteFrame} onClick={deleteSelected} />
                   </>
                 )}
-              </div>
-            )}
+              </>
+  ) : null;
+  const stageOverlays = (
+    <>
             {playing && (
               <div className="stage__player">
                 <Player
@@ -450,31 +442,22 @@ export function Studio({ projectId, onBack }: StudioProps) {
                 </span>
               </div>
             )}
-            <div className="stage__counter">{t.frames(count)}</div>
-          </div>
-        </div>
-
-        <aside className="studio__tools">
-          <div className="studio__toggles">
-            <BigButton color="ghost" stacked icon={<Ghost />} label={t.ghost} active={ghost} onClick={() => setGhost((g) => !g)} />
-            {ghost && (
-              <input
-                className="studio__ghost-slider"
-                type="range"
-                min={0.15}
-                max={0.8}
-                step={0.05}
-                value={ghostOpacity}
-                aria-label={t.ghost}
-                onChange={(e) => setGhostOpacity(Number(e.target.value))}
-              />
-            )}
-            <BigButton color="ghost" stacked icon={<Grid3x3 />} label={t.grid} active={grid} onClick={() => setGrid((g) => !g)} />
-            <BigButton color="ghost" stacked icon={<FlipHorizontal2 />} label={t.mirror} active={mirror} onClick={toggleMirror} />
-            {cam.devices.length > 1 && (
-              <BigButton color="ghost" stacked icon={<SwitchCamera />} label={t.switchCamera} onClick={cam.switchCamera} />
-            )}
-            <BigButton color="ghost" stacked icon={<ImagePlus />} label={t.importPictures} onClick={() => fileInput.current?.click()} />
+    </>
+  );
+  const captureButton = (
+          <button
+            type="button"
+            className="studio__capture"
+            onClick={() => void capture()}
+            disabled={!canCapture || recording}
+            aria-label={t.takePicture}
+          >
+            <span className="studio__capture-inner" />
+            <span className="studio__capture-label">{t.takePicture}</span>
+          </button>
+  );
+  const hiddenInputs = (
+    <>
             <input
               ref={fileInput}
               type="file"
@@ -486,37 +469,6 @@ export function Studio({ projectId, onBack }: StudioProps) {
                 e.target.value = '';
               }}
             />
-          </div>
-          <button
-            type="button"
-            className="studio__capture"
-            onClick={() => void capture()}
-            disabled={!canCapture || recording}
-            aria-label={t.takePicture}
-          >
-            <span className="studio__capture-inner" />
-            <span className="studio__capture-label">{t.takePicture}</span>
-          </button>
-        </aside>
-      </main>
-
-      <div className="studio__bar">
-        <BigButton
-          color={playing && !recording ? 'red' : 'primary'}
-          icon={playing && !recording ? <Square fill="currentColor" /> : <Play fill="currentColor" />}
-          label={playing && !recording ? t.stop : t.play}
-          onClick={togglePlay}
-          disabled={count === 0 || recording}
-          className="studio__play"
-        />
-        <BigButton
-          color={recording ? 'red' : 'pink'}
-          icon={recording ? <Square fill="currentColor" /> : <Mic />}
-          label={recording ? t.stop : t.recordSound}
-          onClick={toggleRecording}
-          className={`studio__mic ${rec.phase === 'recording' ? 'is-recording' : ''}`}
-        />
-        <BigButton color="blue" icon={<Music />} label={t.music} onClick={() => musicInput.current?.click()} disabled={recording} />
         <input
           ref={musicInput}
           type="file"
@@ -527,11 +479,9 @@ export function Studio({ projectId, onBack }: StudioProps) {
             e.target.value = '';
           }}
         />
-        <BigButton color="white" icon={<Repeat />} label={t.loop} active={loop} onClick={() => setLoop((l) => !l)} />
-        <SpeedControl fps={project.fps} onChange={api.setFps} />
-        <BigButton color="white" icon={<Undo2 />} label={t.undo} onClick={undo} disabled={!api.canUndo} />
-      </div>
-
+    </>
+  );
+  const timelineEl = (
       <Timeline
         frameIds={frameIds}
         urls={urls}
@@ -560,6 +510,9 @@ export function Studio({ projectId, onBack }: StudioProps) {
         }
       />
 
+  );
+  const dialogsEl = (
+    <>
       <Toast
         placement="top"
         message={toast?.message ?? null}
@@ -587,6 +540,154 @@ export function Studio({ projectId, onBack }: StudioProps) {
       />
 
       <RenameDialog open={renameOpen} name={project.name} onClose={() => setRenameOpen(false)} onRename={api.rename} />
+    </>
+  );
+
+  if (isPhone) {
+    const ghostBtn = (icon: ReactNode, label: string, onClick: () => void, active?: boolean, disabled?: boolean) => (
+      <BigButton color="ghost" icon={icon} aria-label={label} title={label} active={active} onClick={onClick} disabled={disabled} />
+    );
+    return (
+      <>
+        <PhoneLayout
+          aspect={aspect}
+          stage={
+            <>
+              {stageBase}
+              {stageOverlays}
+            </>
+          }
+          actions={actionButtons}
+          timeline={timelineEl}
+          back={ghostBtn(<ArrowLeft />, t.back, onBack)}
+          title={
+            <button type="button" className="pstudio__name" onClick={() => setRenameOpen(true)} title={t.rename}>
+              <span>{project.name}</span>
+              <small>{t.frames(count)}</small>
+            </button>
+          }
+          save={<BigButton color="green" icon={<Download />} aria-label={t.save} title={t.save} onClick={openSave} disabled={recording} />}
+          tools={
+            <>
+              {ghostBtn(<Ghost />, t.ghost, () => setGhost((g) => !g), ghost)}
+              {ghostBtn(<Grid3x3 />, t.grid, () => setGrid((g) => !g), grid)}
+              {ghostBtn(<FlipHorizontal2 />, t.mirror, toggleMirror, mirror)}
+              {cam.devices.length > 1 && ghostBtn(<SwitchCamera />, t.switchCamera, cam.switchCamera)}
+              {ghostBtn(<ImagePlus />, t.importPictures, () => fileInput.current?.click())}
+            </>
+          }
+          undo={ghostBtn(<Undo2 />, t.undo, undo, false, !api.canUndo)}
+          loop={ghostBtn(<Repeat />, t.loop, () => setLoop((l) => !l), loop)}
+          speedPanel={<SpeedControl fps={project.fps} onChange={api.setFps} />}
+          fps={project.fps}
+          play={
+            <BigButton
+              color={playing && !recording ? 'red' : 'primary'}
+              icon={playing && !recording ? <Square fill="currentColor" /> : <Play fill="currentColor" />}
+              aria-label={playing && !recording ? t.stop : t.play}
+              onClick={togglePlay}
+              disabled={count === 0 || recording}
+            />
+          }
+          mic={
+            <BigButton
+              color={recording ? 'red' : 'pink'}
+              icon={recording ? <Square fill="currentColor" /> : <Mic />}
+              aria-label={recording ? t.stop : t.recordSound}
+              onClick={toggleRecording}
+              className={`studio__mic ${rec.phase === 'recording' ? 'is-recording' : ''}`}
+            />
+          }
+          capture={captureButton}
+          music={<BigButton color="blue" icon={<Music />} aria-label={t.music} onClick={() => musicInput.current?.click()} disabled={recording} />}
+          recording={recording}
+        />
+        {hiddenInputs}
+        {dialogsEl}
+      </>
+    );
+  }
+
+  return (
+    <div className="studio">
+      <header className="studio__top">
+        <BigButton color="white" icon={<ArrowLeft />} label={t.back} onClick={onBack} className="studio__back" />
+        <button type="button" className="studio__title" onClick={() => setRenameOpen(true)} title={t.rename}>
+          <span>{project.name}</span>
+          <Pencil size={20} />
+        </button>
+        <BigButton
+          color="green"
+          icon={<Download />}
+          label={t.save}
+          onClick={openSave}
+          disabled={recording}
+          className="studio__save"
+        />
+      </header>
+
+      <main className="studio__main">
+        <div className="stage">
+          <div className="stage__frame" style={{ ['--ar' as string]: aspect }}>
+            {stageBase}
+            {actionButtons && <div className="stage__still-actions">{actionButtons}</div>}
+            {stageOverlays}
+            <div className="stage__counter">{t.frames(count)}</div>
+          </div>
+        </div>
+
+        <aside className="studio__tools">
+          <div className="studio__toggles">
+            <BigButton color="ghost" stacked icon={<Ghost />} label={t.ghost} active={ghost} onClick={() => setGhost((g) => !g)} />
+            {ghost && (
+              <input
+                className="studio__ghost-slider"
+                type="range"
+                min={0.15}
+                max={0.8}
+                step={0.05}
+                value={ghostOpacity}
+                aria-label={t.ghost}
+                onChange={(e) => setGhostOpacity(Number(e.target.value))}
+              />
+            )}
+            <BigButton color="ghost" stacked icon={<Grid3x3 />} label={t.grid} active={grid} onClick={() => setGrid((g) => !g)} />
+            <BigButton color="ghost" stacked icon={<FlipHorizontal2 />} label={t.mirror} active={mirror} onClick={toggleMirror} />
+            {cam.devices.length > 1 && (
+              <BigButton color="ghost" stacked icon={<SwitchCamera />} label={t.switchCamera} onClick={cam.switchCamera} />
+            )}
+            <BigButton color="ghost" stacked icon={<ImagePlus />} label={t.importPictures} onClick={() => fileInput.current?.click()} />
+          </div>
+          {captureButton}
+        </aside>
+      </main>
+
+      <div className="studio__bar">
+        <BigButton
+          color={playing && !recording ? 'red' : 'primary'}
+          icon={playing && !recording ? <Square fill="currentColor" /> : <Play fill="currentColor" />}
+          label={playing && !recording ? t.stop : t.play}
+          onClick={togglePlay}
+          disabled={count === 0 || recording}
+          className="studio__play"
+        />
+        <BigButton
+          color={recording ? 'red' : 'pink'}
+          icon={recording ? <Square fill="currentColor" /> : <Mic />}
+          label={recording ? t.stop : t.recordSound}
+          onClick={toggleRecording}
+          className={`studio__mic ${rec.phase === 'recording' ? 'is-recording' : ''}`}
+        />
+        <BigButton color="blue" icon={<Music />} label={t.music} onClick={() => musicInput.current?.click()} disabled={recording} />
+        <BigButton color="white" icon={<Repeat />} label={t.loop} active={loop} onClick={() => setLoop((l) => !l)} />
+        <SpeedControl fps={project.fps} onChange={api.setFps} />
+        <BigButton color="white" icon={<Undo2 />} label={t.undo} onClick={undo} disabled={!api.canUndo} />
+      </div>
+
+      {timelineEl}
+
+      {hiddenInputs}
+      {dialogsEl}
     </div>
   );
 }

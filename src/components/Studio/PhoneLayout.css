@@ -1,0 +1,216 @@
+/* ================= Phone studio: full-screen stage, controls floating on the edges ================= */
+.pstudio {
+  --touch: 52px;
+  --edge: 8px;
+  --safe-top: max(var(--edge), env(safe-area-inset-top));
+  --safe-bottom: max(var(--edge), env(safe-area-inset-bottom));
+  --safe-left: max(var(--edge), env(safe-area-inset-left));
+  --safe-right: max(var(--edge), env(safe-area-inset-right));
+  --bar-h: calc(var(--touch) + 2 * var(--edge));
+  position: fixed;
+  inset: 0;
+  height: 100dvh;
+  overflow: hidden;
+  background: #000;
+  color: #fff;
+}
+
+/* ---------- Stage fills the screen ---------- */
+.pstudio .pstudio__stage {
+  position: absolute;
+  inset: 0;
+  padding: 0;
+  border-radius: 0;
+  background: #000;
+  box-shadow: none;
+}
+.pstudio .stage__frame { border-radius: 0; }
+.pstudio .stage__counter { display: none; }
+.pstudio .stage__rec { inset: auto auto 12px 50% !important; transform: translateX(-50%); }
+
+/* ---------- Floating buttons: round, translucent, readable on any picture ---------- */
+.pstudio .bigbtn {
+  min-width: var(--touch);
+  min-height: var(--touch);
+  padding: 6px;
+}
+.pstudio .bigbtn__icon svg { width: 24px; height: 24px; }
+.pstudio .bigbtn--ghost {
+  --btn-bg: rgba(20, 16, 40, 0.55);
+  --btn-edge: rgba(0, 0, 0, 0.45);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+.pstudio .bigbtn--ghost.is-active { --btn-bg: var(--c-yellow); --btn-fg: var(--c-ink); --btn-edge: #d9a514; }
+
+.pstudio__hideable,
+.pstudio__gone {
+  transition: opacity 180ms ease;
+}
+.is-ui-hidden .pstudio__hideable,
+.pstudio__gone {
+  opacity: 0;
+  pointer-events: none;
+}
+.pstudio__dock > span,
+.pstudio__bottom > span,
+.pstudio__main-col > span { display: contents; }
+.is-ui-hidden .pstudio__bottom > .pstudio__hideable,
+.is-ui-hidden .pstudio__main-col > .pstudio__hideable,
+.pstudio__bottom > .pstudio__gone,
+.pstudio__main-col > .pstudio__gone { display: none; }
+
+/* ---------- Top bar ---------- */
+.pstudio__top {
+  position: absolute;
+  top: var(--safe-top);
+  left: var(--safe-left);
+  right: var(--safe-right);
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pstudio__title { flex: 1; min-width: 0; display: flex; justify-content: center; }
+.pstudio__name {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-width: 100%;
+  padding: 2px 12px;
+  border: none;
+  border-radius: 16px;
+  background: rgba(20, 16, 40, 0.45);
+  color: #fff;
+  line-height: 1.1;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+.pstudio__name span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 800; font-size: 1.1rem; }
+.pstudio__name small { font-weight: 700; font-size: 0.8rem; opacity: 0.85; }
+.pstudio__top-tools { display: flex; gap: 8px; }
+
+/* The hide toggle stays visible when everything else is hidden. */
+.pstudio__corner {
+  position: absolute;
+  z-index: 11;
+  top: var(--safe-top);
+  right: calc(var(--safe-right) + var(--touch) + 8px);
+}
+.pstudio__corner-space { flex: none; width: var(--touch); }
+
+/* ---------- Side columns ---------- */
+.pstudio__left,
+.pstudio__right {
+  position: absolute;
+  z-index: 9;
+  top: calc(var(--safe-top) + var(--bar-h));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.pstudio__left { left: var(--safe-left); }
+.pstudio__right { right: var(--safe-right); }
+
+/* Speed button shows the current tempo as a small badge (for grown-ups). */
+.pstudio__speed-btn { position: relative; }
+.pstudio__speed-btn::after {
+  content: attr(data-fps);
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  min-width: 20px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--c-orange);
+  color: #fff;
+  font-size: 0.75rem;
+  line-height: 20px;
+}
+.pstudio__speed-panel {
+  position: absolute;
+  z-index: 12;
+  top: calc(var(--safe-top) + var(--bar-h));
+  left: calc(var(--safe-left) + var(--touch) + 12px);
+  right: calc(var(--safe-right) + var(--touch) + 12px);
+  animation: pop-in 180ms ease;
+}
+.pstudio__speed-panel .speed { width: 100%; color: var(--c-ink); }
+
+/* ---------- Bottom dock: actions, strip, main buttons ---------- */
+.pstudio__dock {
+  position: absolute;
+  z-index: 10;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: var(--safe-bottom);
+  pointer-events: none;
+}
+.pstudio__dock > * { pointer-events: auto; }
+.pstudio__actions {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  animation: slide-up 200ms ease;
+}
+.pstudio__actions .bigbtn__label { display: none; }
+.pstudio__drawer {
+  margin: 0 var(--safe-right) 0 var(--safe-left);
+  border-radius: 16px;
+  overflow: hidden;
+  background: rgba(20, 16, 40, 0.8);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+.pstudio__bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-evenly;
+  padding: 0 var(--safe-right) 0 var(--safe-left);
+}
+
+/* Compact strip on phones: smaller pictures so more of the movie fits. */
+.pstudio .timeline {
+  --pitch: 76px;
+  --thumb-h: 50px;
+  --tl-pad: 8px;
+  max-height: 30vh;
+  border-radius: 0;
+  background: transparent;
+}
+.pstudio .timeline__content { padding-top: 6px; padding-bottom: 6px; }
+.pstudio .timeline__thumb { border-width: 3px; border-radius: 10px; }
+.pstudio .timeline__num { font-size: 0.7rem; }
+.pstudio .timeline__live { width: 64px; margin-left: 4px; font-size: 0.8rem; }
+.pstudio .timeline__live svg { width: 22px; height: 22px; }
+.pstudio .audiotrack__hint { font-size: 0.85rem; }
+
+/* Foto! button */
+.pstudio .studio__capture { width: 84px; height: 84px; border-width: 5px; }
+.pstudio .studio__capture-inner { inset: 10px; }
+.pstudio .studio__capture-label { font-size: 1.05rem; }
+
+/* ---------- Landscape: tools left, main buttons right, strip at the bottom between them ---------- */
+.pstudio--landscape { --touch: 46px; }
+.pstudio--landscape .pstudio__main-col {
+  top: 0;
+  bottom: 0;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+}
+.pstudio--landscape .studio__capture { width: 72px; height: 72px; }
+.pstudio--landscape .pstudio__left { gap: 8px; }
+.pstudio--landscape .pstudio__dock {
+  left: calc(var(--safe-left) + var(--touch) + 8px);
+  right: calc(var(--safe-right) + 80px);
+}
+.pstudio--landscape .pstudio__drawer { margin: 0; }
+.pstudio--landscape .timeline { max-height: 46vh; }
+.pstudio--landscape .pstudio__speed-panel {
+  left: calc(var(--safe-left) + var(--touch) + 12px);
+  right: calc(var(--safe-right) + 90px);
+}

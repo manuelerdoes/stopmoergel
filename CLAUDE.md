@@ -39,7 +39,10 @@ font `@fontsource/baloo-2`, `mediabunny` (MP4 muxing), `fflate` (zip). No state 
   `recorder.ts` (mic → WAV, file → WAV), `mix.ts` (export mixdown), `peaks.ts` (waveforms),
   `useAudioPlayback.ts` (sync with the picture player)
 - `src/components/ui/` — shared primitives: `BigButton`, `Dialog`, `Toast`
-- `src/components/Gallery/`, `src/components/Studio/` — the two screens
+- `src/components/Gallery/`, `src/components/Studio/` — the two screens. The Studio has two layouts:
+  the classic one (desktop + tablets, **don't change it unless asked**) and `PhoneLayout` (full-screen stage,
+  overlay controls) for `PHONE_QUERY` in `src/lib/useMediaQuery.ts`. Both are built from the same pieces in
+  `Studio.tsx`; when adding a control, add it to both.
 - Tests sit next to the code as `*.test.ts`.
 
 ## Conventions
@@ -59,9 +62,6 @@ font `@fontsource/baloo-2`, `mediabunny` (MP4 muxing), `fflate` (zip). No state 
 - Camera switching (`camera.ts`): phones/tablets toggle front/back via `facingMode` (iPhones list several back
   cameras, and opening them by exact `deviceId` can hang). Only desktop webcams cycle `deviceId`s. Always release
   the old stream and pause briefly before requesting the next one (iOS Safari hangs otherwise).
-
-## UX rules (audience: kids)
-
 
 ## UX rules (audience: kids)
 
