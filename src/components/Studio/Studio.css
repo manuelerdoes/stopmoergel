@@ -572,15 +572,20 @@
   .speed { min-width: 0; flex: 1 1 160px; }
 }
 
-/* Short landscape screens (iPad landscape): two-column tools so everything fits next to the stage. */
+/* Tool panel never scrolls: useFitColumns() adds columns (data-cols) until all buttons fit the height. */
+.studio__toggles[data-cols]:not([data-cols='1']) {
+  display: grid;
+  grid-template-columns: repeat(var(--tool-cols), auto);
+  /* dense: buttons fill the gaps next to the ghost button (its slider takes a full row) */
+  grid-auto-flow: row dense;
+  align-content: start;
+  gap: 8px;
+}
+.studio__toggles[data-cols]:not([data-cols='1']) .bigbtn--stacked { min-width: 64px; padding: 6px 6px 4px; font-size: 0.8rem; }
+.studio__toggles[data-cols]:not([data-cols='1']) .studio__ghost-slider { grid-column: 1 / -1; justify-self: center; width: 120px; margin: -2px 0; }
+
+/* Short landscape screens: a slightly smaller Foto! button leaves more room for the tools. */
 @media (max-height: 820px) and (orientation: landscape) and (min-width: 761px) {
-  .studio__toggles {
-    display: grid;
-    grid-template-columns: repeat(2, auto);
-    gap: 8px;
-  }
-  .studio__toggles .bigbtn--stacked { min-width: 64px; padding: 6px 6px 4px; font-size: 0.8rem; }
-  .studio__ghost-slider { grid-column: 1 / -1; justify-self: center; width: 120px; margin: -2px 0; }
   .studio__capture { width: 96px; height: 96px; border-width: 6px; }
 }
 

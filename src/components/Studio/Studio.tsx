@@ -36,6 +36,7 @@ import { Player } from './Player';
 import { SpeedControl } from './SpeedControl';
 import { Timeline } from './Timeline';
 import { PhoneLayout } from './PhoneLayout';
+import { useFitColumns } from './useFitColumns';
 import { PHONE_QUERY, useMediaQuery } from '../../lib/useMediaQuery';
 import { AudioTrack } from './AudioTrack';
 import { useSoundRecorder } from './useSoundRecorder';
@@ -90,6 +91,9 @@ export function Studio({ projectId, onBack }: StudioProps) {
   const [renameOpen, setRenameOpen] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const musicInput = useRef<HTMLInputElement>(null);
+  const togglesRef = useRef<HTMLDivElement>(null);
+  // Re-measure when the number of tools changes (ghost slider, camera switch button) or the layout switches.
+  useFitColumns(togglesRef, [ghost, cam.devices.length > 1, isPhone, api.status]);
 
   const frameIds = useMemo(() => project?.frameIds ?? [], [project?.frameIds]);
   const count = frameIds.length;
@@ -637,7 +641,7 @@ export function Studio({ projectId, onBack }: StudioProps) {
         </div>
 
         <aside className="studio__tools">
-          <div className="studio__toggles">
+          <div className="studio__toggles" ref={togglesRef}>
             <BigButton color="ghost" stacked icon={<Ghost />} label={t.ghost} active={ghost} onClick={() => setGhost((g) => !g)} />
             {ghost && (
               <input

@@ -70,6 +70,8 @@ font `@fontsource/baloo-2`, `mediabunny` (MP4 muxing), `fflate` (zip). No state 
 - No jargon: "Tempo" with turtle/rabbit, not "fps"; "Geist" (ghost) for onion skin.
 - Give feedback for every action (sound, animation, toast).
 - Must work with touch (iPad) and mouse/keyboard (Space = take picture).
+- Controls must never be hidden behind scrolling. The desktop tool panel adds columns instead
+  (`useFitColumns`); never reintroduce a fixed column count or a scrollable tool panel.
 
 ## Working style
 
